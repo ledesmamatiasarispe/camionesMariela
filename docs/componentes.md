@@ -29,6 +29,8 @@
   cargar el viaje.
 - Tipo de carga: general o carga peligrosa.
 - Datos de lugar: nombre, direccion, observaciones y roles con vigencia.
+- Selectores de lugar de viaje con todos los lugares activos, ordenados por uso
+  historico segun carga o descarga.
 - Datos de chofer: DNI, nombre, apellido, telefono y vencimiento de registro.
 - Datos de peaje: nombre, direccion y costo.
 - Cambio de estado.

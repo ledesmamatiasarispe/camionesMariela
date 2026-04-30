@@ -1793,10 +1793,8 @@ class MainWindow(QMainWindow):
                 peajes.addItem(peaje_item)
 
     def _lugar_options(self, rol: str) -> list[tuple[str, object]]:
-        roles = self.lugar_repository.list_roles(rol)
-        if roles:
-            return [(item.lugar, item.lugar_id) for item in roles]
-        return [(item.nombre, item.id) for item in self.lugar_repository.list_all()]
+        lugares = self.lugar_repository.list_by_viaje_usage(rol)
+        return [(item.nombre, item.id) for item in lugares]
 
     def _build_lugar_combo(self, rol: str) -> QComboBox:
         return self._build_combo(self._lugar_options(rol))

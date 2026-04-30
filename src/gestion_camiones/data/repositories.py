@@ -517,6 +517,60 @@ class LugarRepository:
             for row in rows
         ]
 
+    def list_by_viaje_usage(
+        self,
+        rol: str,
+        include_inactive: bool = False,
+    ) -> list[Lugar]:
+        usage_column_by_role = {
+            "CARGA": "lugar_carga_id",
+            "DESCARGA": "lugar_descarga_id",
+        }
+        usage_column = usage_column_by_role.get(rol)
+        if usage_column is None:
+            raise ValueError("Rol de lugar invalido.")
+
+        query = f"""
+            SELECT
+                lugares.id,
+                lugares.nombre,
+                lugares.direccion,
+                lugares.observaciones,
+                lugares.activo,
+                COUNT(viajes.id) AS usos
+            FROM lugares
+            LEFT JOIN viajes ON viajes.{usage_column} = lugares.id
+        """
+        params: list[int] = []
+
+        if not include_inactive:
+            query += " WHERE lugares.activo = ?"
+            params.append(1)
+
+        query += """
+            GROUP BY
+                lugares.id,
+                lugares.nombre,
+                lugares.direccion,
+                lugares.observaciones,
+                lugares.activo
+            ORDER BY usos DESC, lugares.nombre COLLATE NOCASE
+        """
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, tuple(params)).fetchall()
+
+        return [
+            Lugar(
+                id=row["id"],
+                nombre=row["nombre"],
+                direccion=row["direccion"],
+                observaciones=row["observaciones"],
+                activo=bool(row["activo"]),
+            )
+            for row in rows
+        ]
+
     def list_roles(
         self,
         rol: str | None = None,

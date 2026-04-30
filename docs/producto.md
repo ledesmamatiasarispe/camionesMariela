@@ -24,6 +24,8 @@ Sera una app cliente sin servidor. El funcionamiento normal no debe depender de 
   formulario de viaje cuando el cliente provee un codigo nuevo.
 - Registrar tipo de carga como general o carga peligrosa.
 - Gestionar lugares con nombre, direccion, observaciones y roles variables de carga/descarga.
+- Recomendar lugares en la carga de viaje segun el uso historico como origen o
+  destino, sin impedir elegir cualquier lugar activo.
 - Gestionar clientes como objetos con domicilio fiscal, email y numero de contacto.
 - Gestionar choferes como objetos con DNI, nombre, apellido, telefono y vencimiento de registro.
 - Gestionar camiones y semis como vehiculos con identificador, patente y observaciones.

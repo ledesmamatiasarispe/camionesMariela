@@ -75,6 +75,11 @@ Guarda lugares de carga y descarga. La misma tabla sirve para origen y destino.
 
 El lugar no queda marcado para siempre como carga o descarga. Ese rol puede variar en el tiempo y se registra en `lugar_roles`.
 
+En el formulario de viaje, los campos `Lugar carga` y `L.Descarga` muestran
+todos los lugares activos. El orden recomendado se calcula por uso historico:
+para `Lugar carga` se cuentan los viajes donde el lugar fue origen, y para
+`L.Descarga` se cuentan los viajes donde el lugar fue destino.
+
 Campos principales:
 
 - `id`
