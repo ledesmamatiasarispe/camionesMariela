@@ -7,6 +7,7 @@
 - Secciones principales: Cargar viaje, Historial viajes, Clientes, Lugares,
   Chofer, T.Carga, Vehiculos, Peajes, Estadisticas y Opciones.
 - Items laterales equivalentes a las secciones principales.
+- Boton superior `Nuevo viaje` visible solo en la seccion Cargar viaje.
 
 ## Datos
 
@@ -15,6 +16,7 @@
 - Filtros por fecha, estado, cliente, chofer, vehiculo y lugar.
 - Busqueda rapida.
 - Tarjetas de resumen operativo.
+- Botonera propia por seccion: Crear, Editar y Eliminar.
 
 ## Formularios
 

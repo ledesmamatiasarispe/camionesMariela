@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QDate, Qt
@@ -252,7 +253,7 @@ class MainWindow(QMainWindow):
         new_button = QPushButton("Nuevo viaje")
         new_button.setObjectName("primaryButton")
         new_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        new_button.clicked.connect(self._go_to_create_tab)
+        new_button.clicked.connect(self._prepare_new_viaje)
         self.new_button = new_button
 
         layout.addLayout(title_block)
@@ -273,9 +274,18 @@ class MainWindow(QMainWindow):
         panel_layout.setContentsMargins(18, 18, 18, 18)
         panel_layout.setSpacing(14)
 
+        header = QHBoxLayout()
         title = QLabel("Cargar viaje")
         title.setObjectName("sectionTitle")
-        panel_layout.addWidget(title)
+        header.addWidget(title)
+        header.addStretch()
+        header.addWidget(
+            self._build_crud_actions(
+                "viaje",
+                create_callback=self._save_viaje,
+            )
+        )
+        panel_layout.addLayout(header)
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -382,14 +392,6 @@ class MainWindow(QMainWindow):
         form.addRow("Vacio", vacio)
         form.addRow("Peajes", peajes)
         panel_layout.addLayout(form)
-
-        actions = QHBoxLayout()
-        actions.addStretch()
-        save_button = QPushButton("Guardar viaje")
-        save_button.setObjectName("primaryButton")
-        save_button.clicked.connect(self._save_viaje)
-        actions.addWidget(save_button)
-        panel_layout.addLayout(actions)
 
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -551,6 +553,7 @@ class MainWindow(QMainWindow):
         header_title.setObjectName("sectionTitle")
         header_layout.addWidget(header_title)
         header_layout.addStretch()
+        header_layout.addWidget(self._build_crud_actions(title))
 
         table = QTableWidget(len(rows), len(headers))
         table.setHorizontalHeaderLabels(headers)
@@ -602,10 +605,14 @@ class MainWindow(QMainWindow):
         header_layout.setContentsMargins(16, 0, 16, 0)
         header_title = QLabel("Viajes")
         header_title.setObjectName("sectionTitle")
-        export_button = QPushButton("Exportar")
         header_layout.addWidget(header_title)
         header_layout.addStretch()
-        header_layout.addWidget(export_button)
+        header_layout.addWidget(
+            self._build_crud_actions(
+                "viaje",
+                create_callback=self._go_to_create_tab,
+            )
+        )
 
         self.table = QTableWidget(0, 17)
         self.table.setHorizontalHeaderLabels(
@@ -678,6 +685,55 @@ class MainWindow(QMainWindow):
             viaje.estado,
         ]
 
+    def _build_crud_actions(
+        self,
+        section_label: str,
+        *,
+        create_callback: Callable[[], None] | None = None,
+        edit_callback: Callable[[], None] | None = None,
+        delete_callback: Callable[[], None] | None = None,
+    ) -> QWidget:
+        actions = QWidget()
+        actions.setObjectName("actionButtons")
+        layout = QHBoxLayout(actions)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        create_button = QPushButton("Crear")
+        create_button.setObjectName("primaryButton")
+        create_button.clicked.connect(
+            create_callback
+            if create_callback is not None
+            else lambda: self._show_pending_action(section_label, "Crear")
+        )
+
+        edit_button = QPushButton("Editar")
+        edit_button.clicked.connect(
+            edit_callback
+            if edit_callback is not None
+            else lambda: self._show_pending_action(section_label, "Editar")
+        )
+
+        delete_button = QPushButton("Eliminar")
+        delete_button.setObjectName("dangerButton")
+        delete_button.clicked.connect(
+            delete_callback
+            if delete_callback is not None
+            else lambda: self._show_pending_action(section_label, "Eliminar")
+        )
+
+        layout.addWidget(create_button)
+        layout.addWidget(edit_button)
+        layout.addWidget(delete_button)
+        return actions
+
+    def _show_pending_action(self, section_label: str, action: str) -> None:
+        QMessageBox.information(
+            self,
+            f"{action} {section_label}",
+            f"La accion {action.lower()} para {section_label} queda lista para implementar.",
+        )
+
     def _save_viaje(self) -> None:
         try:
             viaje = self._collect_viaje_form()
@@ -694,6 +750,10 @@ class MainWindow(QMainWindow):
         self._refresh_metrics()
         self._clear_viaje_form()
         self._go_to_history_tab()
+
+    def _prepare_new_viaje(self) -> None:
+        self._clear_viaje_form()
+        self._go_to_create_tab()
 
     def _collect_viaje_form(self) -> ViajeCreate:
         fecha = self._date_value("fecha")
@@ -783,7 +843,7 @@ class MainWindow(QMainWindow):
         if self.search_input is not None:
             self.search_input.setVisible(active_label == "Historial viajes")
         if self.new_button is not None:
-            self.new_button.setVisible(active_label != "Cargar viaje")
+            self.new_button.setVisible(active_label == "Cargar viaje")
 
         for label, button in self.nav_buttons.items():
             object_name = "navButtonActive" if label == active_label else "navButton"
@@ -1030,6 +1090,15 @@ QPushButton#primaryButton {
     border-color: #1f6f8b;
     background: #1f6f8b;
     color: #ffffff;
+}
+
+QPushButton#dangerButton {
+    border-color: #b42318;
+    color: #b42318;
+}
+
+QWidget#actionButtons {
+    background: transparent;
 }
 
 QTableWidget {

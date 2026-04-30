@@ -36,7 +36,7 @@
             <p>Alta de viaje con cliente, carga, lugares, chofer, vehiculos e importes.</p>
           </div>
           <div class="toolbar" aria-label="Acciones del tablero">
-            <button class="primary" type="button">Guardar viaje</button>
+            <button class="primary" type="button">Nuevo viaje</button>
           </div>
         </header>
 
@@ -44,6 +44,11 @@
           <section class="panel" aria-labelledby="cargar-viaje-title">
             <div class="panel-header">
               <h2 id="cargar-viaje-title">Datos del viaje</h2>
+              <div class="panel-actions" aria-label="Acciones de viaje">
+                <button class="primary" type="button">Crear</button>
+                <button type="button">Editar</button>
+                <button class="danger" type="button">Eliminar</button>
+              </div>
             </div>
             <form class="travel-form">
               <label class="field">
@@ -137,9 +142,6 @@
                 <label><input type="checkbox"> Peaje Ruta Sur - $ 22.000</label>
                 <label><input type="checkbox"> Peaje Acceso Puerto - $ 9.000</label>
               </fieldset>
-              <div class="form-actions">
-                <button class="primary" type="button">Guardar viaje</button>
-              </div>
             </form>
           </section>
 
@@ -169,7 +171,11 @@
           <section class="panel" aria-labelledby="viajes-title">
             <div class="panel-header">
               <h2 id="viajes-title">Viajes</h2>
-              <button type="button">Exportar</button>
+              <div class="panel-actions" aria-label="Acciones de historial">
+                <button class="primary" type="button">Crear</button>
+                <button type="button">Editar</button>
+                <button class="danger" type="button">Eliminar</button>
+              </div>
             </div>
             <div class="table-wrap">
               <table>

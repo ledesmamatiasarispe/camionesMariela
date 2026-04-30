@@ -62,6 +62,11 @@ button.primary {
   color: #ffffff;
 }
 
+button.danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
 button:hover {
   border-color: var(--color-primary);
 }
@@ -276,6 +281,11 @@ button:hover {
 .panel-header h2 {
   margin: 0;
   font-size: 16px;
+}
+
+.panel-actions {
+  display: flex;
+  gap: var(--space-2);
 }
 
 .table-wrap {
