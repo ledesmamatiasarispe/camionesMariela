@@ -52,6 +52,11 @@ La app debe tener configurado:
 - Version instalada.
 - Canal de actualizacion, si en el futuro hay estable/beta.
 
+Repositorio configurado:
+
+- Propietario: `ledesmamatiasarispe`
+- Repositorio: `camionesMariela`
+
 ## Seguridad
 
 Recomendaciones:

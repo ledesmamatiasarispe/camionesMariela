@@ -20,6 +20,12 @@ Crear un repositorio en GitHub. Nombre sugerido:
 sistema-gestion-camiones
 ```
 
+Repositorio actual:
+
+```text
+git@github.com:ledesmamatiasarispe/camionesMariela.git
+```
+
 Luego conectar este proyecto local:
 
 ```bash
@@ -29,7 +35,7 @@ git commit -m "Base inicial de la app"
 git push -u origin main
 ```
 
-Reemplazar `USUARIO_O_ORG` por el usuario u organizacion real.
+En este proyecto ya esta configurado como `origin`.
 
 ## Publicar una version
 
@@ -51,3 +57,5 @@ Antes de conectar esa funcion a la interfaz hay que definir:
 - Usuario u organizacion de GitHub.
 - Nombre final del repositorio.
 - Nombres esperados de paquetes para Windows y macOS.
+
+Los datos actuales del repositorio son `ledesmamatiasarispe/camionesMariela`.
