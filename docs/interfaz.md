@@ -24,8 +24,21 @@ PySide6 permite crear:
 
 La interfaz principal se organiza por pestanas.
 
-La primera pestana debe ser `Cargar viaje`. Debe pedir los datos del viaje en el
-mismo orden operativo definido por la planilla:
+Pestanas iniciales:
+
+- Cargar viaje.
+- Historial viajes.
+- Clientes.
+- Lugares.
+- Chofer.
+- T.Carga.
+- Vehiculos.
+- Peajes.
+- Estadisticas.
+- Opciones.
+
+La primera pestana es `Cargar viaje`. Debe pedir los datos del viaje en el mismo
+orden operativo definido por la planilla:
 
 - Fecha.
 - Cliente.
@@ -44,28 +57,33 @@ mismo orden operativo definido por la planilla:
 - Vacio.
 - Peajes.
 
-## Tablero operativo
+## Historial viajes
 
-La segunda pestana debe funcionar como tablero operativo:
+La segunda pestana debe funcionar como historial operativo:
 
-- Resumen de viajes.
-- Indicadores principales.
 - Busqueda por cliente, chofer, vehiculo, lugar o peaje.
 - Tabla de viajes.
 - Acceso rapido a alta de viaje.
 - Acceso a detalle de viaje.
 
+## Estadisticas
+
+La pestana de estadisticas debe mostrar:
+
+- Resumen de viajes.
+- Indicadores principales.
+- Importes totales de tarifa, demora, vacio y peajes.
+
 ## Pantallas previstas
 
-- Tablero operativo.
-- Listado de viajes.
+- Historial de viajes.
 - Alta y edicion de viaje.
 - Detalle de viaje.
 - Cambio de estado.
 - Carga de documentacion.
 - Maestros: clientes, cargas, lugares, roles de lugares, choferes, vehiculos y peajes.
 - Reportes/exportaciones.
-- Configuracion.
+- Opciones/configuracion.
 
 ## Reglas de experiencia
 

@@ -42,6 +42,63 @@ from gestion_camiones.data.repositories import (
 )
 
 
+TAB_LABELS = [
+    "Cargar viaje",
+    "Historial viajes",
+    "Clientes",
+    "Lugares",
+    "Chofer",
+    "T.Carga",
+    "Vehiculos",
+    "Peajes",
+    "Estadisticas",
+    "Opciones",
+]
+
+TAB_HEADERS = {
+    "Cargar viaje": (
+        "Cargar viaje",
+        "Alta de viaje con cliente, carga, lugares, chofer, vehiculos e importes.",
+    ),
+    "Historial viajes": (
+        "Historial viajes",
+        "Listado operativo de viajes cargados y busqueda rapida.",
+    ),
+    "Clientes": (
+        "Clientes",
+        "Datos fiscales y de contacto de clientes.",
+    ),
+    "Lugares": (
+        "Lugares",
+        "Puntos de carga y descarga con roles variables.",
+    ),
+    "Chofer": (
+        "Chofer",
+        "Datos de choferes y vencimiento de registro.",
+    ),
+    "T.Carga": (
+        "T.Carga",
+        "Tipos de carga disponibles para cada viaje.",
+    ),
+    "Vehiculos": (
+        "Vehiculos",
+        "Camiones y semis registrados.",
+    ),
+    "Peajes": (
+        "Peajes",
+        "Peajes disponibles y costos asociados.",
+    ),
+    "Estadisticas": (
+        "Estadisticas",
+        "Resumen de viajes e importes cobrados al cliente.",
+    ),
+    "Opciones": (
+        "Opciones",
+        "Configuracion general de la aplicacion.",
+    ),
+}
+
+
 class MainWindow(QMainWindow):
     def __init__(self, viaje_repository: ViajeRepository, database_path: Path) -> None:
         super().__init__()
@@ -60,6 +117,7 @@ class MainWindow(QMainWindow):
         self.nav_buttons: dict[str, QPushButton] = {}
         self.page_title_label: QLabel | None = None
         self.page_subtitle_label: QLabel | None = None
+        self.new_button: QPushButton | None = None
         self.form_widgets: dict[str, QWidget] = {}
 
         self.setWindowTitle("Gestion de viajes")
@@ -77,14 +135,14 @@ class MainWindow(QMainWindow):
         file_menu.addAction(exit_action)
 
         view_menu = self.menuBar().addMenu("Vista")
-        create_action = QAction("Cargar viaje", self)
-        create_action.triggered.connect(self._go_to_create_tab)
-        dashboard_action = QAction("Tablero", self)
-        dashboard_action.triggered.connect(self._go_to_dashboard_tab)
-        view_menu.addAction(create_action)
-        view_menu.addAction(dashboard_action)
-        view_menu.addAction(QAction("Viajes", self))
-        view_menu.addAction(QAction("Maestros", self))
+        for label in TAB_LABELS:
+            action = QAction(label, self)
+            action.triggered.connect(
+                lambda checked=False, tab_label=label: self._go_to_tab_by_label(
+                    tab_label
+                )
+            )
+            view_menu.addAction(action)
 
     def _build_shell(self) -> QWidget:
         shell = QWidget()
@@ -114,17 +172,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(subtitle)
         layout.addSpacing(24)
 
-        for index, item in enumerate(
-            ["Cargar viaje", "Tablero", "Viajes", "Clientes", "Choferes", "Vehiculos"]
-        ):
+        for index, item in enumerate(TAB_LABELS):
             button = QPushButton(item)
             button.setObjectName("navButtonActive" if index == 0 else "navButton")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             self.nav_buttons[item] = button
-            if item == "Cargar viaje":
-                button.clicked.connect(self._go_to_create_tab)
-            elif item == "Tablero":
-                button.clicked.connect(self._go_to_dashboard_tab)
+            button.clicked.connect(
+                lambda checked=False, tab_label=item: self._go_to_tab_by_label(
+                    tab_label
+                )
+            )
             layout.addWidget(button)
 
         layout.addStretch()
@@ -145,8 +202,18 @@ class MainWindow(QMainWindow):
         content_layout.setSpacing(20)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_viaje_form_tab(), "Cargar viaje")
-        self.tabs.addTab(self._build_dashboard_tab(), "Tablero")
+        self.tabs.setUsesScrollButtons(True)
+        self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
+        self.tabs.addTab(self._build_viaje_form_tab(), TAB_LABELS[0])
+        self.tabs.addTab(self._build_history_tab(), TAB_LABELS[1])
+        self.tabs.addTab(self._build_clients_tab(), TAB_LABELS[2])
+        self.tabs.addTab(self._build_lugares_tab(), TAB_LABELS[3])
+        self.tabs.addTab(self._build_choferes_tab(), TAB_LABELS[4])
+        self.tabs.addTab(self._build_tipo_carga_tab(), TAB_LABELS[5])
+        self.tabs.addTab(self._build_vehiculos_tab(), TAB_LABELS[6])
+        self.tabs.addTab(self._build_peajes_tab(), TAB_LABELS[7])
+        self.tabs.addTab(self._build_statistics_tab(), TAB_LABELS[8])
+        self.tabs.addTab(self._build_options_tab(), TAB_LABELS[9])
         self.tabs.currentChanged.connect(self._sync_tab_header)
         content_layout.addWidget(self.tabs, stretch=1)
         self._sync_tab_header(0)
@@ -185,6 +252,7 @@ class MainWindow(QMainWindow):
         new_button.setObjectName("primaryButton")
         new_button.setCursor(Qt.CursorShape.PointingHandCursor)
         new_button.clicked.connect(self._go_to_create_tab)
+        self.new_button = new_button
 
         layout.addLayout(title_block)
         layout.addStretch()
@@ -330,15 +398,177 @@ class MainWindow(QMainWindow):
         layout.addWidget(scroll, stretch=1)
         return tab
 
-    def _build_dashboard_tab(self) -> QWidget:
+    def _build_history_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(20)
+
+        layout.addWidget(self._build_table_panel(), stretch=1)
+        return tab
+
+    def _build_clients_tab(self) -> QWidget:
+        rows = [
+            [
+                item.nombre,
+                item.domicilio_fiscal,
+                item.email,
+                item.numero_contacto,
+            ]
+            for item in self.cliente_repository.list_all()
+        ]
+        return self._build_static_table_tab(
+            "Clientes",
+            ["Nombre", "Domicilio fiscal", "Email", "Contacto"],
+            rows,
+        )
+
+    def _build_lugares_tab(self) -> QWidget:
+        roles_by_lugar: dict[int, list[str]] = {}
+        for role in self.lugar_repository.list_roles():
+            roles_by_lugar.setdefault(role.lugar_id, []).append(role.rol.title())
+
+        rows = [
+            [
+                item.nombre,
+                item.direccion,
+                ", ".join(roles_by_lugar.get(item.id, [])),
+                item.observaciones,
+            ]
+            for item in self.lugar_repository.list_all()
+        ]
+        return self._build_static_table_tab(
+            "Lugares",
+            ["Nombre", "Direccion", "Roles", "Observaciones"],
+            rows,
+        )
+
+    def _build_choferes_tab(self) -> QWidget:
+        rows = [
+            [
+                item.dni,
+                item.nombre,
+                item.apellido,
+                item.numero_telefono,
+                item.fecha_vencimiento_registro,
+            ]
+            for item in self.chofer_repository.list_all()
+        ]
+        return self._build_static_table_tab(
+            "Chofer",
+            ["DNI", "Nombre", "Apellido", "Telefono", "Vencimiento registro"],
+            rows,
+        )
+
+    def _build_tipo_carga_tab(self) -> QWidget:
+        return self._build_static_table_tab(
+            "T.Carga",
+            ["Nombre", "Codigo interno"],
+            [["General", "GENERAL"], ["Carga peligrosa", "PELIGROSA"]],
+        )
+
+    def _build_vehiculos_tab(self) -> QWidget:
+        rows = [
+            [
+                item.tipo.title(),
+                item.nombre_identificatorio,
+                item.patente,
+                item.observaciones,
+            ]
+            for item in self.vehiculo_repository.list_all()
+        ]
+        return self._build_static_table_tab(
+            "Vehiculos",
+            ["Tipo", "Nombre identificatorio", "Patente", "Observaciones"],
+            rows,
+        )
+
+    def _build_peajes_tab(self) -> QWidget:
+        rows = [
+            [item.nombre, item.direccion, _format_money(item.costo)]
+            for item in self.peaje_repository.list_all()
+        ]
+        return self._build_static_table_tab(
+            "Peajes",
+            ["Nombre", "Direccion", "Costo"],
+            rows,
+        )
+
+    def _build_statistics_tab(self) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
         layout.addLayout(self._build_metrics())
-        layout.addWidget(self._build_table_panel(), stretch=1)
+        layout.addStretch()
         return tab
+
+    def _build_options_tab(self) -> QWidget:
+        return self._build_static_table_tab(
+            "Opciones",
+            ["Opcion", "Valor"],
+            [
+                ["Base de datos", str(self.database_path)],
+                ["Actualizaciones", "GitHub Releases"],
+                ["Modo", "Cliente sin servidor"],
+            ],
+        )
+
+    def _build_static_table_tab(
+        self,
+        title: str,
+        headers: list[str],
+        rows: list[list[str]],
+    ) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(20)
+
+        layout.addWidget(self._build_readonly_table_panel(title, headers, rows), stretch=1)
+        return tab
+
+    def _build_readonly_table_panel(
+        self,
+        title: str,
+        headers: list[str],
+        rows: list[list[str]],
+    ) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("panelHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(16, 0, 16, 0)
+        header_title = QLabel(title)
+        header_title.setObjectName("sectionTitle")
+        header_layout.addWidget(header_title)
+        header_layout.addStretch()
+
+        table = QTableWidget(len(rows), len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+
+        for row_index, row in enumerate(rows):
+            for column_index, value in enumerate(row):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row_index, column_index, item)
+
+        layout.addWidget(header)
+        layout.addWidget(table, stretch=1)
+        return panel
 
     def _build_metrics(self) -> QGridLayout:
         grid = QGridLayout()
@@ -399,7 +629,9 @@ class MainWindow(QMainWindow):
             ]
         )
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.ResizeToContents
+        )
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._refresh_table()
@@ -460,8 +692,7 @@ class MainWindow(QMainWindow):
         self._refresh_table()
         self._refresh_metrics()
         self._clear_viaje_form()
-        if self.tabs is not None:
-            self.tabs.setCurrentIndex(1)
+        self._go_to_history_tab()
 
     def _collect_viaje_form(self) -> ViajeCreate:
         fecha = self._date_value("fecha")
@@ -521,28 +752,38 @@ class MainWindow(QMainWindow):
             card.set_value(display_value)
 
     def _go_to_create_tab(self) -> None:
-        if self.tabs is not None:
-            self.tabs.setCurrentIndex(0)
+        self._go_to_tab_by_label("Cargar viaje")
+
+    def _go_to_history_tab(self) -> None:
+        self._go_to_tab_by_label("Historial viajes")
 
     def _go_to_dashboard_tab(self) -> None:
-        if self.tabs is not None:
-            self.tabs.setCurrentIndex(1)
+        self._go_to_history_tab()
+
+    def _go_to_tab_by_label(self, label: str) -> None:
+        if self.tabs is None:
+            return
+
+        for index in range(self.tabs.count()):
+            if self.tabs.tabText(index) == label:
+                self.tabs.setCurrentIndex(index)
+                return
 
     def _sync_tab_header(self, index: int) -> None:
-        title = "Cargar viaje" if index == 0 else "Tablero operativo"
-        subtitle = (
-            "Alta de viaje con cliente, carga, lugares, chofer, vehiculos e importes."
-            if index == 0
-            else "Resumen de viajes e importes cobrados al cliente."
-        )
+        if self.tabs is None:
+            return
+
+        active_label = self.tabs.tabText(index)
+        title, subtitle = TAB_HEADERS.get(active_label, (active_label, ""))
         if self.page_title_label is not None:
             self.page_title_label.setText(title)
         if self.page_subtitle_label is not None:
             self.page_subtitle_label.setText(subtitle)
         if self.search_input is not None:
-            self.search_input.setVisible(index == 1)
+            self.search_input.setVisible(active_label == "Historial viajes")
+        if self.new_button is not None:
+            self.new_button.setVisible(active_label != "Cargar viaje")
 
-        active_label = "Cargar viaje" if index == 0 else "Tablero"
         for label, button in self.nav_buttons.items():
             object_name = "navButtonActive" if label == active_label else "navButton"
             button.setObjectName(object_name)

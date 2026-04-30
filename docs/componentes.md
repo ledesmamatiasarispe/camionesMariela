@@ -3,12 +3,14 @@
 ## Navegacion
 
 - App shell con barra lateral.
-- Pestanas principales: Cargar viaje y Tablero.
-- Items laterales: Cargar viaje, Tablero, Viajes, Clientes, Choferes y Vehiculos.
+- Pestanas principales: Cargar viaje, Historial viajes, Clientes, Lugares,
+  Chofer, T.Carga, Vehiculos, Peajes, Estadisticas y Opciones.
+- Items laterales equivalentes a las pestanas principales.
 
 ## Datos
 
 - Tabla de viajes.
+- Tablas maestras para clientes, lugares, choferes, tipos de carga, vehiculos y peajes.
 - Filtros por fecha, estado, cliente, chofer, vehiculo y lugar.
 - Busqueda rapida.
 - Tarjetas de resumen operativo.
