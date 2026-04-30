@@ -39,7 +39,7 @@ La primera pantalla debe funcionar como tablero operativo:
 - Detalle de viaje.
 - Cambio de estado.
 - Carga de documentacion.
-- Maestros: clientes, cargas, lugares, choferes y vehiculos.
+- Maestros: clientes, cargas, lugares, roles de lugares, choferes y vehiculos.
 - Reportes/exportaciones.
 - Configuracion.
 

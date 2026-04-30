@@ -4,7 +4,15 @@ from contextlib import closing
 import sqlite3
 from pathlib import Path
 
-from gestion_camiones.data.models import Carga, Chofer, Cliente, Vehiculo, ViajeResumen
+from gestion_camiones.data.models import (
+    Carga,
+    Chofer,
+    Cliente,
+    Lugar,
+    LugarRol,
+    Vehiculo,
+    ViajeResumen,
+)
 
 
 class ViajeRepository:
@@ -50,7 +58,11 @@ class ViajeRepository:
                    OR clientes.numero_contacto LIKE ?
                    OR cargas.codigo_contenedor LIKE ?
                    OR lugar_carga.nombre LIKE ?
+                   OR lugar_carga.direccion LIKE ?
+                   OR lugar_carga.observaciones LIKE ?
                    OR lugar_descarga.nombre LIKE ?
+                   OR lugar_descarga.direccion LIKE ?
+                   OR lugar_descarga.observaciones LIKE ?
                    OR choferes.dni LIKE ?
                    OR choferes.nombre LIKE ?
                    OR choferes.apellido LIKE ?
@@ -62,6 +74,10 @@ class ViajeRepository:
             """
             pattern = f"%{search.strip()}%"
             params = (
+                pattern,
+                pattern,
+                pattern,
+                pattern,
                 pattern,
                 pattern,
                 pattern,
@@ -184,6 +200,100 @@ class CargaRepository:
             Carga(
                 id=row["id"],
                 codigo_contenedor=row["codigo_contenedor"],
+                activo=bool(row["activo"]),
+            )
+            for row in rows
+        ]
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+
+class LugarRepository:
+    def __init__(self, database_path: Path) -> None:
+        self.database_path = database_path
+
+    def list_all(self, include_inactive: bool = False) -> list[Lugar]:
+        query = """
+            SELECT
+                id,
+                nombre,
+                direccion,
+                observaciones,
+                activo
+            FROM lugares
+        """
+        params: tuple[int, ...] = ()
+
+        if not include_inactive:
+            query += " WHERE activo = ?"
+            params = (1,)
+
+        query += " ORDER BY nombre"
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, params).fetchall()
+
+        return [
+            Lugar(
+                id=row["id"],
+                nombre=row["nombre"],
+                direccion=row["direccion"],
+                observaciones=row["observaciones"],
+                activo=bool(row["activo"]),
+            )
+            for row in rows
+        ]
+
+    def list_roles(
+        self,
+        rol: str | None = None,
+        include_inactive: bool = False,
+    ) -> list[LugarRol]:
+        query = """
+            SELECT
+                lugar_roles.id,
+                lugar_roles.lugar_id,
+                lugares.nombre AS lugar,
+                lugar_roles.rol,
+                lugar_roles.valido_desde,
+                lugar_roles.valido_hasta,
+                lugar_roles.observaciones,
+                lugar_roles.activo
+            FROM lugar_roles
+            JOIN lugares ON lugares.id = lugar_roles.lugar_id
+        """
+        clauses = []
+        params: list[str | int] = []
+
+        if rol is not None:
+            clauses.append("lugar_roles.rol = ?")
+            params.append(rol)
+
+        if not include_inactive:
+            clauses.append("lugar_roles.activo = ?")
+            params.append(1)
+
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+
+        query += " ORDER BY lugares.nombre, lugar_roles.rol, lugar_roles.valido_desde"
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, tuple(params)).fetchall()
+
+        return [
+            LugarRol(
+                id=row["id"],
+                lugar_id=row["lugar_id"],
+                lugar=row["lugar"],
+                rol=row["rol"],
+                valido_desde=row["valido_desde"],
+                valido_hasta=row["valido_hasta"],
+                observaciones=row["observaciones"],
                 activo=bool(row["activo"]),
             )
             for row in rows

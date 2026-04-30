@@ -29,8 +29,22 @@ CREATE TABLE IF NOT EXISTS cargas (
 CREATE TABLE IF NOT EXISTS lugares (
     id INTEGER PRIMARY KEY,
     nombre TEXT NOT NULL UNIQUE,
+    direccion TEXT NOT NULL DEFAULT '',
+    observaciones TEXT NOT NULL DEFAULT '',
     activo INTEGER NOT NULL DEFAULT 1,
     creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS lugar_roles (
+    id INTEGER PRIMARY KEY,
+    lugar_id INTEGER NOT NULL,
+    rol TEXT NOT NULL CHECK (rol IN ('CARGA', 'DESCARGA')),
+    valido_desde TEXT NOT NULL DEFAULT '',
+    valido_hasta TEXT,
+    observaciones TEXT NOT NULL DEFAULT '',
+    activo INTEGER NOT NULL DEFAULT 1,
+    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (lugar_id) REFERENCES lugares(id)
 );
 
 CREATE TABLE IF NOT EXISTS choferes (
@@ -97,6 +111,9 @@ CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
 CREATE INDEX IF NOT EXISTS idx_clientes_email ON clientes(email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cargas_codigo_contenedor
     ON cargas(codigo_contenedor);
+CREATE INDEX IF NOT EXISTS idx_lugares_nombre ON lugares(nombre);
+CREATE INDEX IF NOT EXISTS idx_lugar_roles_lugar_id ON lugar_roles(lugar_id);
+CREATE INDEX IF NOT EXISTS idx_lugar_roles_rol ON lugar_roles(rol);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_choferes_dni ON choferes(dni);
 CREATE INDEX IF NOT EXISTS idx_choferes_apellido_nombre ON choferes(apellido, nombre);
 CREATE INDEX IF NOT EXISTS idx_vehiculos_tipo ON vehiculos(tipo);
@@ -146,11 +163,25 @@ INSERT OR IGNORE INTO cargas (id, codigo_contenedor, descripcion) VALUES
     (2, 'CONT-00000000000000000002', 'Producto terminado'),
     (3, 'CONT-00000000000000000003', 'Insumos');
 
-INSERT OR IGNORE INTO lugares (id, nombre) VALUES
-    (1, 'Planta principal'),
-    (2, 'Deposito norte'),
-    (3, 'Cliente Sur'),
-    (4, 'Puerto');
+INSERT OR IGNORE INTO lugares (id, nombre, direccion, observaciones) VALUES
+    (1, 'Planta principal', 'Direccion pendiente', ''),
+    (2, 'Deposito norte', 'Direccion pendiente', ''),
+    (3, 'Cliente Sur', 'Direccion pendiente', ''),
+    (4, 'Puerto', 'Direccion pendiente', '');
+
+INSERT OR IGNORE INTO lugar_roles (
+    id,
+    lugar_id,
+    rol,
+    valido_desde,
+    valido_hasta,
+    observaciones
+) VALUES
+    (1, 1, 'CARGA', '2026-01-01', NULL, ''),
+    (2, 1, 'DESCARGA', '2026-01-01', NULL, ''),
+    (3, 2, 'CARGA', '2026-01-01', NULL, ''),
+    (4, 3, 'DESCARGA', '2026-01-01', NULL, ''),
+    (5, 4, 'CARGA', '2026-01-01', NULL, '');
 
 INSERT OR IGNORE INTO choferes (
     id,
@@ -219,9 +250,11 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
         connection.executescript(SCHEMA_SQL)
         _migrate_clientes(connection)
         _migrate_cargas(connection)
+        _migrate_lugares(connection)
         _migrate_choferes(connection)
         _migrate_vehiculos(connection)
         _migrate_viajes_to_vehiculos(connection)
+        _migrate_lugar_roles_from_viajes(connection)
         connection.executescript(POST_MIGRATION_SQL)
         if seed:
             connection.executescript(SEED_SQL)
@@ -260,6 +293,17 @@ def _migrate_cargas(connection: sqlite3.Connection) -> None:
         )
         """
     )
+
+
+def _migrate_lugares(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "lugares")
+
+    if "direccion" not in columns:
+        connection.execute("ALTER TABLE lugares ADD COLUMN direccion TEXT NOT NULL DEFAULT ''")
+    if "observaciones" not in columns:
+        connection.execute(
+            "ALTER TABLE lugares ADD COLUMN observaciones TEXT NOT NULL DEFAULT ''"
+        )
 
 
 def _migrate_choferes(connection: sqlite3.Connection) -> None:
@@ -461,6 +505,62 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
     )
     connection.execute("DROP TABLE viajes_legacy")
     connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_lugar_roles_from_viajes(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "viajes"):
+        return
+
+    connection.execute(
+        """
+        INSERT INTO lugar_roles (
+            lugar_id,
+            rol,
+            valido_desde,
+            valido_hasta,
+            observaciones
+        )
+        SELECT DISTINCT
+            viajes.lugar_carga_id,
+            'CARGA',
+            '',
+            NULL,
+            'Rol inferido desde viajes existentes'
+        FROM viajes
+        WHERE viajes.lugar_carga_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM lugar_roles
+              WHERE lugar_roles.lugar_id = viajes.lugar_carga_id
+                AND lugar_roles.rol = 'CARGA'
+          )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO lugar_roles (
+            lugar_id,
+            rol,
+            valido_desde,
+            valido_hasta,
+            observaciones
+        )
+        SELECT DISTINCT
+            viajes.lugar_descarga_id,
+            'DESCARGA',
+            '',
+            NULL,
+            'Rol inferido desde viajes existentes'
+        FROM viajes
+        WHERE viajes.lugar_descarga_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM lugar_roles
+              WHERE lugar_roles.lugar_id = viajes.lugar_descarga_id
+                AND lugar_roles.rol = 'DESCARGA'
+          )
+        """
+    )
 
 
 def _viajes_references_vehiculos(connection: sqlite3.Connection) -> bool:

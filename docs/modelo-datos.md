@@ -64,10 +64,28 @@ Campos principales:
 
 Guarda lugares de carga y descarga. La misma tabla sirve para origen y destino.
 
+El lugar no queda marcado para siempre como carga o descarga. Ese rol puede variar en el tiempo y se registra en `lugar_roles`.
+
 Campos principales:
 
 - `id`
 - `nombre`
+- `direccion`
+- `observaciones`
+- `activo`
+
+### lugar_roles
+
+Guarda el rol que puede cumplir un lugar durante una vigencia determinada.
+
+Campos principales:
+
+- `id`
+- `lugar_id`
+- `rol`: `CARGA` o `DESCARGA`
+- `valido_desde`
+- `valido_hasta`
+- `observaciones`
 - `activo`
 
 ### choferes
@@ -123,6 +141,7 @@ Campos principales:
 - Un cliente puede tener muchos viajes.
 - Una carga puede estar en muchos viajes.
 - Un lugar puede ser origen o destino de muchos viajes.
+- Un lugar puede tener muchos roles de carga o descarga con distintas vigencias.
 - Un chofer puede tener muchos viajes.
 - Un vehiculo de tipo `CAMION` puede tener muchos viajes como camion.
 - Un vehiculo de tipo `SEMI` puede tener muchos viajes como semi.
@@ -167,6 +186,19 @@ Campos iniciales:
 - `codigo_contenedor`: codigo largo que identifica al contenedor.
 
 En `viajes` se guarda `carga_id`, para mantener la relacion con el contenedor sin repetir el codigo en cada viaje.
+
+## Objeto lugar
+
+El lugar es una entidad propia y neutral.
+
+Campos iniciales:
+
+- `id`: identificador interno.
+- `nombre`: nombre visible del lugar.
+- `direccion`: direccion fisica.
+- `observaciones`: notas internas.
+
+El uso como lugar de carga o descarga se registra en `lugar_roles`, no en el lugar en si. Esto permite que un lugar pueda cambiar de funcion con el tiempo sin perder historial.
 
 ## Objeto vehiculo
 

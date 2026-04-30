@@ -21,6 +21,27 @@ class Carga:
 
 
 @dataclass(frozen=True)
+class Lugar:
+    id: int
+    nombre: str
+    direccion: str
+    observaciones: str
+    activo: bool
+
+
+@dataclass(frozen=True)
+class LugarRol:
+    id: int
+    lugar_id: int
+    lugar: str
+    rol: str
+    valido_desde: str
+    valido_hasta: str | None
+    observaciones: str
+    activo: bool
+
+
+@dataclass(frozen=True)
 class Chofer:
     id: int
     dni: str
