@@ -4,7 +4,7 @@
 
 La entidad central del sistema es el `viaje`.
 
-Un viaje representa una operacion de transporte de la empresa y relaciona cliente, carga, origen, destino, chofer, camion, semi y valores economicos.
+Un viaje representa una operacion de transporte de la empresa y relaciona cliente, carga, origen, destino, chofer, vehiculos y valores economicos.
 
 ## Columnas recibidas
 
@@ -80,26 +80,17 @@ Campos principales:
 - `fecha_vencimiento_registro`
 - `activo`
 
-### camiones
+### vehiculos
 
-Guarda unidades tractoras o camiones.
-
-Campos principales:
-
-- `id`
-- `patente`
-- `descripcion`
-- `activo`
-
-### semis
-
-Guarda semirremolques.
+Guarda camiones y semis como objetos del mismo tipo base.
 
 Campos principales:
 
 - `id`
+- `tipo`
+- `nombre_identificatorio`
 - `patente`
-- `descripcion`
+- `observaciones`
 - `activo`
 
 ## Tabla viajes
@@ -129,9 +120,9 @@ Campos principales:
 - Una carga puede estar en muchos viajes.
 - Un lugar puede ser origen o destino de muchos viajes.
 - Un chofer puede tener muchos viajes.
-- Un camion puede tener muchos viajes.
-- Un semi puede tener muchos viajes.
-- Un viaje pertenece a un cliente, una carga, un origen, un destino, un chofer y un camion.
+- Un vehiculo de tipo `CAMION` puede tener muchos viajes como camion.
+- Un vehiculo de tipo `SEMI` puede tener muchos viajes como semi.
+- Un viaje pertenece a un cliente, una carga, un origen, un destino, un chofer y al menos un camion.
 
 ## Objeto chofer
 
@@ -146,6 +137,20 @@ Campos iniciales:
 - `fecha_vencimiento_registro`: vencimiento de su registro/licencia.
 
 En `viajes` se guarda `chofer_id`, para mantener la relacion sin duplicar datos personales en cada viaje.
+
+## Objeto vehiculo
+
+Camiones y semis comparten la misma estructura y se guardan en `vehiculos`.
+
+Campos iniciales:
+
+- `id`: identificador interno.
+- `tipo`: `CAMION` o `SEMI`.
+- `nombre_identificatorio`: nombre corto para reconocerlo en pantalla.
+- `patente`: patente del vehiculo.
+- `observaciones`: notas internas.
+
+En `viajes` se guardan `camion_id` y `semi_id`. Ambos apuntan a `vehiculos`, pero `camion_id` debe corresponder a un vehiculo de tipo `CAMION` y `semi_id` a uno de tipo `SEMI`.
 
 ## Base local
 

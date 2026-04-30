@@ -81,7 +81,7 @@ class MainWindow(QMainWindow):
         layout.addSpacing(24)
 
         for index, item in enumerate(
-            ["Tablero", "Viajes", "Clientes", "Choferes", "Camiones", "Reportes"]
+            ["Tablero", "Viajes", "Clientes", "Choferes", "Vehiculos", "Reportes"]
         ):
             button = QPushButton(item)
             button.setObjectName("navButtonActive" if index == 0 else "navButton")
@@ -130,7 +130,7 @@ class MainWindow(QMainWindow):
         title_block.addWidget(subtitle)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Buscar cliente, chofer, camion o lugar")
+        self.search_input.setPlaceholderText("Buscar cliente, chofer, vehiculo o lugar")
         self.search_input.setFixedWidth(300)
         self.search_input.textChanged.connect(self._refresh_table)
 

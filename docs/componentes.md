@@ -3,19 +3,19 @@
 ## Navegacion
 
 - App shell con barra lateral.
-- Items: Tablero, Viajes, Clientes, Choferes, Camiones, Reportes.
+- Items: Tablero, Viajes, Clientes, Choferes, Vehiculos, Reportes.
 
 ## Datos
 
 - Tabla de viajes.
-- Filtros por fecha, estado, cliente, chofer, camion, semi y lugar.
+- Filtros por fecha, estado, cliente, chofer, vehiculo y lugar.
 - Busqueda rapida.
 - Tarjetas de resumen operativo.
 
 ## Formularios
 
 - Alta/edicion de viaje.
-- Alta/edicion de clientes, cargas, lugares, choferes, camiones y semis.
+- Alta/edicion de clientes, cargas, lugares, choferes y vehiculos.
 - Cambio de estado.
 - Carga de documentacion.
 - Registro de observaciones.

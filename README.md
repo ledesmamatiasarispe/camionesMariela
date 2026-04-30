@@ -1,10 +1,10 @@
-# Sistema de gestion de camiones
+# Sistema de gestion de viajes
 
-Proyecto base para definir el diseno de una aplicacion de gestion de camiones, turnos, estados operativos y documentacion asociada.
+Proyecto base para definir el diseno de una aplicacion de gestion de viajes, vehiculos, estados operativos y documentacion asociada.
 
 ## Objetivo
 
-Construir una interfaz simple, clara y confiable para registrar, consultar y coordinar movimientos de camiones dentro de un flujo productivo o logistico.
+Construir una interfaz simple, clara y confiable para registrar, consultar y coordinar viajes de la empresa dentro de un flujo productivo o logistico.
 
 La app debe tener interfaz grafica de usuario. No debe funcionar como programa de consola para el uso normal.
 
@@ -56,6 +56,6 @@ Los usuarios finales no deberian hacer estos pasos. Para ellos se debe entregar 
 ## Proximos pasos sugeridos
 
 1. Definir usuarios principales y tareas criticas.
-2. Listar estados reales de un camion en planta o circuito logistico.
-3. Diseñar las primeras pantallas: tablero diario, alta de camion, detalle de viaje y documentacion.
+2. Listar estados reales de un viaje dentro del circuito logistico.
+3. Diseñar las primeras pantallas: tablero diario, alta de viaje, detalle de viaje y documentacion.
 4. Elegir tecnologia cuando el flujo este mas claro.

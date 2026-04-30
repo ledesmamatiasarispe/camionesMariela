@@ -18,6 +18,20 @@ class Chofer:
 
 
 @dataclass(frozen=True)
+class Vehiculo:
+    id: int
+    tipo: str
+    nombre_identificatorio: str
+    patente: str
+    observaciones: str
+    activo: bool
+
+    @property
+    def etiqueta(self) -> str:
+        return f"{self.nombre_identificatorio} - {self.patente}".strip()
+
+
+@dataclass(frozen=True)
 class ViajeResumen:
     id: int
     cliente: str

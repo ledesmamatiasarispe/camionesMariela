@@ -4,7 +4,7 @@ from contextlib import closing
 import sqlite3
 from pathlib import Path
 
-from gestion_camiones.data.models import Chofer, ViajeResumen
+from gestion_camiones.data.models import Chofer, Vehiculo, ViajeResumen
 
 
 class ViajeRepository:
@@ -22,8 +22,8 @@ class ViajeRepository:
                 COALESCE(viajes.observaciones, '') AS observaciones,
                 trim(choferes.nombre || ' ' || choferes.apellido) AS chofer,
                 COALESCE(viajes.tipo_carga, '') AS tipo_carga,
-                camiones.patente AS camion,
-                COALESCE(semis.patente, '') AS semi,
+                camion.nombre_identificatorio || ' - ' || camion.patente AS camion,
+                COALESCE(semi.nombre_identificatorio || ' - ' || semi.patente, '') AS semi,
                 viajes.tarifa,
                 COALESCE(viajes.fecha_descarga_programada, '') AS fecha_descarga_programada,
                 viajes.demora,
@@ -37,8 +37,10 @@ class ViajeRepository:
             JOIN lugares AS lugar_carga ON lugar_carga.id = viajes.lugar_carga_id
             JOIN lugares AS lugar_descarga ON lugar_descarga.id = viajes.lugar_descarga_id
             JOIN choferes ON choferes.id = viajes.chofer_id
-            JOIN camiones ON camiones.id = viajes.camion_id
-            LEFT JOIN semis ON semis.id = viajes.semi_id
+            JOIN vehiculos AS camion
+                ON camion.id = viajes.camion_id AND camion.tipo = 'CAMION'
+            LEFT JOIN vehiculos AS semi
+                ON semi.id = viajes.semi_id AND semi.tipo = 'SEMI'
         """
         params: tuple[str, ...] = ()
         if search.strip():
@@ -50,11 +52,15 @@ class ViajeRepository:
                    OR choferes.dni LIKE ?
                    OR choferes.nombre LIKE ?
                    OR choferes.apellido LIKE ?
-                   OR camiones.patente LIKE ?
-                   OR semis.patente LIKE ?
+                   OR camion.nombre_identificatorio LIKE ?
+                   OR camion.patente LIKE ?
+                   OR semi.nombre_identificatorio LIKE ?
+                   OR semi.patente LIKE ?
             """
             pattern = f"%{search.strip()}%"
             params = (
+                pattern,
+                pattern,
                 pattern,
                 pattern,
                 pattern,
@@ -133,6 +139,63 @@ class ChoferRepository:
                 nombre=row["nombre"],
                 apellido=row["apellido"],
                 fecha_vencimiento_registro=row["fecha_vencimiento_registro"],
+                activo=bool(row["activo"]),
+            )
+            for row in rows
+        ]
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+
+class VehiculoRepository:
+    def __init__(self, database_path: Path) -> None:
+        self.database_path = database_path
+
+    def list_all(
+        self,
+        tipo: str | None = None,
+        include_inactive: bool = False,
+    ) -> list[Vehiculo]:
+        query = """
+            SELECT
+                id,
+                tipo,
+                nombre_identificatorio,
+                patente,
+                COALESCE(observaciones, '') AS observaciones,
+                activo
+            FROM vehiculos
+        """
+        clauses = []
+        params: list[str | int] = []
+
+        if tipo is not None:
+            clauses.append("tipo = ?")
+            params.append(tipo)
+
+        if not include_inactive:
+            clauses.append("activo = ?")
+            params.append(1)
+
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+
+        query += " ORDER BY tipo, nombre_identificatorio, patente"
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, tuple(params)).fetchall()
+
+        return [
+            Vehiculo(
+                id=row["id"],
+                tipo=row["tipo"],
+                nombre_identificatorio=row["nombre_identificatorio"],
+                patente=row["patente"],
+                observaciones=row["observaciones"],
                 activo=bool(row["activo"]),
             )
             for row in rows
