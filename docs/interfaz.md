@@ -24,21 +24,22 @@ PySide6 permite crear:
 
 La primera pantalla debe funcionar como tablero operativo:
 
-- Resumen de camiones del dia.
+- Resumen de viajes.
 - Indicadores principales.
-- Busqueda por patente o proveedor.
-- Tabla de camiones activos.
-- Acceso rapido a alta de camion.
-- Acceso a detalle de camion.
+- Busqueda por cliente, chofer, camion, semi o lugar.
+- Tabla de viajes.
+- Acceso rapido a alta de viaje.
+- Acceso a detalle de viaje.
 
 ## Pantallas previstas
 
 - Tablero operativo.
-- Listado de camiones.
-- Alta y edicion de camion.
-- Detalle de camion.
+- Listado de viajes.
+- Alta y edicion de viaje.
+- Detalle de viaje.
 - Cambio de estado.
 - Carga de documentacion.
+- Maestros: clientes, cargas, lugares, choferes, camiones y semis.
 - Reportes/exportaciones.
 - Configuracion.
 

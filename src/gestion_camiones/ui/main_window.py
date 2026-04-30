@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
@@ -18,11 +20,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from gestion_camiones.data.models import ViajeResumen
+from gestion_camiones.data.repositories import ViajeRepository
+
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, viaje_repository: ViajeRepository, database_path: Path) -> None:
         super().__init__()
-        self.setWindowTitle("Gestion de camiones")
+        self.viaje_repository = viaje_repository
+        self.database_path = database_path
+        self.metric_cards: dict[str, MetricCard] = {}
+        self.search_input: QLineEdit | None = None
+        self.table: QTableWidget | None = None
+
+        self.setWindowTitle("Gestion de viajes")
         self.resize(1180, 760)
         self.setMinimumSize(980, 620)
 
@@ -38,8 +49,8 @@ class MainWindow(QMainWindow):
 
         view_menu = self.menuBar().addMenu("Vista")
         view_menu.addAction(QAction("Tablero", self))
-        view_menu.addAction(QAction("Camiones", self))
-        view_menu.addAction(QAction("Turnos", self))
+        view_menu.addAction(QAction("Viajes", self))
+        view_menu.addAction(QAction("Maestros", self))
 
     def _build_shell(self) -> QWidget:
         shell = QWidget()
@@ -60,9 +71,9 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(18, 22, 18, 18)
         layout.setSpacing(8)
 
-        brand = QLabel("Gestion Camiones")
+        brand = QLabel("Gestion Viajes")
         brand.setObjectName("brand")
-        subtitle = QLabel("Laboratorio y produccion")
+        subtitle = QLabel("Transporte")
         subtitle.setObjectName("sidebarSubtitle")
 
         layout.addWidget(brand)
@@ -70,7 +81,7 @@ class MainWindow(QMainWindow):
         layout.addSpacing(24)
 
         for index, item in enumerate(
-            ["Tablero", "Camiones", "Turnos", "Documentacion", "Reportes", "Configuracion"]
+            ["Tablero", "Viajes", "Clientes", "Choferes", "Camiones", "Reportes"]
         ):
             button = QPushButton(item)
             button.setObjectName("navButtonActive" if index == 0 else "navButton")
@@ -113,37 +124,35 @@ class MainWindow(QMainWindow):
         title_block.setSpacing(2)
         title = QLabel("Tablero operativo")
         title.setObjectName("pageTitle")
-        subtitle = QLabel("Resumen diario de camiones, estados y demoras.")
+        subtitle = QLabel("Resumen de viajes, tarifas, demoras y unidades.")
         subtitle.setObjectName("muted")
         title_block.addWidget(title)
         title_block.addWidget(subtitle)
 
-        search = QLineEdit()
-        search.setPlaceholderText("Buscar patente o proveedor")
-        search.setFixedWidth(260)
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Buscar cliente, chofer, camion o lugar")
+        self.search_input.setFixedWidth(300)
+        self.search_input.textChanged.connect(self._refresh_table)
 
-        new_button = QPushButton("Nuevo camion")
+        new_button = QPushButton("Nuevo viaje")
         new_button.setObjectName("primaryButton")
         new_button.setCursor(Qt.CursorShape.PointingHandCursor)
 
         layout.addLayout(title_block)
         layout.addStretch()
-        layout.addWidget(search)
+        layout.addWidget(self.search_input)
         layout.addWidget(new_button)
         return topbar
 
     def _build_metrics(self) -> QGridLayout:
         grid = QGridLayout()
         grid.setSpacing(14)
-        metrics = [
-            ("Programados hoy", "18"),
-            ("En planta", "7"),
-            ("Observados", "2"),
-            ("Finalizados", "9"),
-        ]
+        metrics = self.viaje_repository.dashboard_metrics()
 
-        for column, (label, value) in enumerate(metrics):
-            grid.addWidget(MetricCard(label, value), 0, column)
+        for column, (label, value) in enumerate(metrics.items()):
+            card = MetricCard(label, str(value))
+            self.metric_cards[label] = card
+            grid.addWidget(card, 0, column)
 
         return grid
 
@@ -159,37 +168,79 @@ class MainWindow(QMainWindow):
         header.setObjectName("panelHeader")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(16, 0, 16, 0)
-        header_title = QLabel("Camiones activos")
+        header_title = QLabel("Viajes")
         header_title.setObjectName("sectionTitle")
         export_button = QPushButton("Exportar")
         header_layout.addWidget(header_title)
         header_layout.addStretch()
         header_layout.addWidget(export_button)
 
-        table = QTableWidget(4, 7)
-        table.setHorizontalHeaderLabels(
-            ["Patente", "Proveedor", "Operacion", "Estado", "Ingreso", "Responsable", "Accion"]
+        self.table = QTableWidget(0, 16)
+        self.table.setHorizontalHeaderLabels(
+            [
+                "Cliente",
+                "Carga",
+                "Lugar carga",
+                "L.Descarga",
+                "Observaciones",
+                "Chofer",
+                "T.Carga",
+                "Camion",
+                "Semi",
+                "Tarifa",
+                "F.Desc prog.",
+                "Demora",
+                "F.Desc real",
+                "Vacio",
+                "Peajes",
+                "Estado",
+            ]
         )
-        rows = [
-            ["AB123CD", "Romero e hijos", "Descarga", "En laboratorio", "08:25", "Laboratorio", "Ver"],
-            ["AE456FG", "Proveedor Norte", "Carga", "En espera", "09:10", "Porteria", "Ver"],
-            ["AD789HI", "Cliente Sur", "Retiro", "Observado", "09:45", "Calidad", "Ver"],
-            ["AC321JK", "Transporte Oeste", "Descarga", "Autorizado", "10:05", "Produccion", "Ver"],
-        ]
-        for row_index, row in enumerate(rows):
-            for column_index, value in enumerate(row):
-                item = QTableWidgetItem(value)
-                item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
-                table.setItem(row_index, column_index, item)
-
-        table.verticalHeader().setVisible(False)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.verticalHeader().setVisible(False)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._refresh_table()
 
         layout.addWidget(header)
-        layout.addWidget(table, stretch=1)
+        layout.addWidget(self.table, stretch=1)
         return panel
+
+    def _refresh_table(self) -> None:
+        if self.table is None:
+            return
+
+        search = self.search_input.text() if self.search_input is not None else ""
+        rows = self.viaje_repository.list_resumen(search)
+        self.table.setRowCount(len(rows))
+
+        for row_index, viaje in enumerate(rows):
+            for column_index, value in enumerate(self._viaje_to_row(viaje)):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.table.setItem(row_index, column_index, item)
+
+        self.table.resizeColumnsToContents()
+
+    def _viaje_to_row(self, viaje: ViajeResumen) -> list[str]:
+        return [
+            viaje.cliente,
+            viaje.carga,
+            viaje.lugar_carga,
+            viaje.lugar_descarga,
+            viaje.observaciones,
+            viaje.chofer,
+            viaje.tipo_carga,
+            viaje.camion,
+            viaje.semi,
+            _format_money(viaje.tarifa),
+            viaje.fecha_descarga_programada,
+            _format_money(viaje.demora),
+            viaje.fecha_descarga_real,
+            _format_money(viaje.vacio),
+            _format_money(viaje.peajes),
+            viaje.estado,
+        ]
 
 
 class MetricCard(QFrame):
@@ -207,6 +258,10 @@ class MetricCard(QFrame):
 
         layout.addWidget(label_widget)
         layout.addWidget(value_widget)
+
+
+def _format_money(value: float) -> str:
+    return f"$ {value:,.0f}".replace(",", ".")
 
 
 APP_STYLES = """

@@ -34,6 +34,7 @@ Tambien debe ser autocontenida: el usuario final no deberia tener que instalar r
 - `docs/arquitectura.md`: arquitectura cliente sin servidor y estrategia de datos.
 - `docs/actualizaciones.md`: estrategia para actualizar desde GitHub Releases.
 - `docs/github.md`: configuracion del repositorio, CI y releases.
+- `docs/modelo-datos.md`: relaciones iniciales para gestionar viajes.
 
 ## Como abrir la maqueta
 

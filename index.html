@@ -3,24 +3,24 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sistema de gestion de camiones</title>
+    <title>Sistema de gestion de viajes</title>
     <link rel="stylesheet" href="styles/design-system.css">
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navegacion principal">
         <div class="brand">
-          <strong>Gestion Camiones</strong>
-          <span>Laboratorio y produccion</span>
+          <strong>Gestion Viajes</strong>
+          <span>Transporte</span>
         </div>
         <nav>
           <ul class="nav-list">
             <li><a class="nav-link active" href="#">Tablero</a></li>
+            <li><a class="nav-link" href="#">Viajes</a></li>
+            <li><a class="nav-link" href="#">Clientes</a></li>
+            <li><a class="nav-link" href="#">Choferes</a></li>
             <li><a class="nav-link" href="#">Camiones</a></li>
-            <li><a class="nav-link" href="#">Turnos</a></li>
-            <li><a class="nav-link" href="#">Documentacion</a></li>
             <li><a class="nav-link" href="#">Reportes</a></li>
-            <li><a class="nav-link" href="#">Configuracion</a></li>
           </ul>
         </nav>
       </aside>
@@ -29,34 +29,34 @@
         <header class="topbar">
           <div class="page-title">
             <h1>Tablero operativo</h1>
-            <p>Resumen diario de camiones, estados y demoras.</p>
+            <p>Resumen de viajes, tarifas, demoras y unidades.</p>
           </div>
           <div class="toolbar" aria-label="Acciones del tablero">
-            <input class="search-input" type="search" placeholder="Buscar patente o proveedor">
+            <input class="search-input" type="search" placeholder="Buscar cliente, chofer o camion">
             <select class="filter-select" aria-label="Filtrar por estado">
               <option>Todos los estados</option>
               <option>Programado</option>
-              <option>En espera</option>
-              <option>Autorizado</option>
+              <option>En viaje</option>
+              <option>Finalizado</option>
               <option>Observado</option>
             </select>
-            <button class="primary" type="button">Nuevo camion</button>
+            <button class="primary" type="button">Nuevo viaje</button>
           </div>
         </header>
 
         <section class="content">
           <div class="metrics" aria-label="Indicadores">
             <article class="metric">
-              <span>Programados hoy</span>
-              <strong>18</strong>
+              <span>Viajes cargados</span>
+              <strong>3</strong>
             </article>
             <article class="metric">
-              <span>En planta</span>
-              <strong>7</strong>
+              <span>En viaje</span>
+              <strong>1</strong>
             </article>
             <article class="metric">
-              <span>Observados</span>
-              <strong>2</strong>
+              <span>Con demora</span>
+              <strong>1</strong>
             </article>
             <article class="metric">
               <span>Finalizados</span>
@@ -64,59 +64,66 @@
             </article>
           </div>
 
-          <section class="panel" aria-labelledby="camiones-title">
+          <section class="panel" aria-labelledby="viajes-title">
             <div class="panel-header">
-              <h2 id="camiones-title">Camiones activos</h2>
+              <h2 id="viajes-title">Viajes</h2>
               <button type="button">Exportar</button>
             </div>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Patente</th>
-                    <th>Proveedor</th>
-                    <th>Operacion</th>
+                    <th>Cliente</th>
+                    <th>Carga</th>
+                    <th>Lugar carga</th>
+                    <th>L.Descarga</th>
+                    <th>Chofer</th>
+                    <th>Camion</th>
+                    <th>Semi</th>
+                    <th>Tarifa</th>
+                    <th>Demora</th>
                     <th>Estado</th>
-                    <th>Ingreso</th>
-                    <th>Responsable</th>
                     <th>Accion</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td>AB123CD</td>
                     <td>Romero e hijos</td>
-                    <td>Descarga</td>
-                    <td><span class="status info">En laboratorio</span></td>
-                    <td>08:25</td>
-                    <td>M. Laboratorio</td>
+                    <td>Materia prima</td>
+                    <td>Deposito norte</td>
+                    <td>Planta principal</td>
+                    <td>Juan Perez</td>
+                    <td>AB123CD</td>
+                    <td>AA111BB</td>
+                    <td>$ 120.000</td>
+                    <td>$ 0</td>
+                    <td><span class="status info">Programado</span></td>
                     <td><button type="button">Ver</button></td>
                   </tr>
                   <tr>
-                    <td>AE456FG</td>
-                    <td>Proveedor Norte</td>
-                    <td>Carga</td>
-                    <td><span class="status warning">En espera</span></td>
-                    <td>09:10</td>
-                    <td>Porteria</td>
-                    <td><button type="button">Ver</button></td>
-                  </tr>
-                  <tr>
-                    <td>AD789HI</td>
                     <td>Cliente Sur</td>
-                    <td>Retiro</td>
-                    <td><span class="status danger">Observado</span></td>
-                    <td>09:45</td>
-                    <td>Calidad</td>
+                    <td>Producto terminado</td>
+                    <td>Planta principal</td>
+                    <td>Cliente Sur</td>
+                    <td>Carlos Gomez</td>
+                    <td>AE456FG</td>
+                    <td>AC222DD</td>
+                    <td>$ 180.000</td>
+                    <td>$ 25.000</td>
+                    <td><span class="status warning">En viaje</span></td>
                     <td><button type="button">Ver</button></td>
                   </tr>
                   <tr>
-                    <td>AC321JK</td>
-                    <td>Transporte Oeste</td>
-                    <td>Descarga</td>
-                    <td><span class="status success">Autorizado</span></td>
-                    <td>10:05</td>
-                    <td>Produccion</td>
+                    <td>Proveedor Norte</td>
+                    <td>Insumos</td>
+                    <td>Puerto</td>
+                    <td>Planta principal</td>
+                    <td>Miguel Silva</td>
+                    <td>AD789HI</td>
+                    <td>AF333GG</td>
+                    <td>$ 95.000</td>
+                    <td>$ 0</td>
+                    <td><span class="status success">Finalizado</span></td>
                     <td><button type="button">Ver</button></td>
                   </tr>
                 </tbody>

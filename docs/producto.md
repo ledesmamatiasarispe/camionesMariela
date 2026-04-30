@@ -2,7 +2,7 @@
 
 ## Vision
 
-Una herramienta interna para ordenar la gestion de camiones: ingreso, turno, estado, carga/descarga, documentacion y salida.
+Una herramienta interna para ordenar la gestion de viajes de la empresa: cliente, carga, lugares, chofer, camion, semi, tarifas, demoras, vacios, peajes, observaciones y estado operativo.
 
 Debe ser usable en equipos con Windows y macOS, manteniendo el mismo flujo funcional y una experiencia visual consistente.
 
@@ -17,10 +17,10 @@ Sera una app cliente sin servidor. El funcionamiento normal no debe depender de 
 
 ## Tareas criticas
 
-- Registrar un camion nuevo.
-- Asignar o consultar turno.
+- Registrar un viaje nuevo.
+- Relacionar cliente, carga, lugar de carga, lugar de descarga, chofer, camion y semi.
 - Cambiar estado operativo.
-- Ver camiones pendientes, en proceso y finalizados.
+- Ver viajes pendientes, en proceso y finalizados.
 - Asociar documentacion o controles.
 - Buscar por patente, chofer, proveedor, cliente, remito o fecha.
 

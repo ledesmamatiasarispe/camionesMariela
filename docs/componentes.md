@@ -3,18 +3,19 @@
 ## Navegacion
 
 - App shell con barra lateral.
-- Items: Tablero, Camiones, Turnos, Documentacion, Reportes, Configuracion.
+- Items: Tablero, Viajes, Clientes, Choferes, Camiones, Reportes.
 
 ## Datos
 
-- Tabla de camiones.
-- Filtros por fecha, estado, proveedor, patente y tipo de operacion.
+- Tabla de viajes.
+- Filtros por fecha, estado, cliente, chofer, camion, semi y lugar.
 - Busqueda rapida.
 - Tarjetas de resumen operativo.
 
 ## Formularios
 
-- Alta/edicion de camion.
+- Alta/edicion de viaje.
+- Alta/edicion de clientes, cargas, lugares, choferes, camiones y semis.
 - Cambio de estado.
 - Carga de documentacion.
 - Registro de observaciones.
@@ -30,7 +31,7 @@ Cada estado debe tener:
 
 ## Acciones frecuentes
 
-- Nuevo camion.
+- Nuevo viaje.
 - Cambiar estado.
 - Ver detalle.
 - Adjuntar documento.
