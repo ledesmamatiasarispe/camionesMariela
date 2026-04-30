@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from contextlib import closing
 import sqlite3
+from contextlib import closing
 from pathlib import Path
-
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -102,6 +101,7 @@ CREATE TABLE IF NOT EXISTS viajes (
     fecha_descarga_demora TEXT,
     vacio NUMERIC NOT NULL DEFAULT 0,
     fecha_descarga_vacio TEXT,
+    gas_oil_lts NUMERIC NOT NULL DEFAULT 0,
     peajes NUMERIC NOT NULL DEFAULT 0,
     observaciones TEXT,
     estado TEXT NOT NULL DEFAULT 'Programado',
@@ -320,6 +320,7 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
         _migrate_viajes_to_vehiculos(connection)
         _migrate_viaje_fecha(connection)
         _migrate_viaje_fechas_descarga(connection)
+        _migrate_viaje_gas_oil_lts(connection)
         _migrate_tipo_carga(connection)
         _migrate_tipos_carga(connection)
         _migrate_viajes_tipo_carga_dynamic(connection)
@@ -685,6 +686,17 @@ def _migrate_viaje_fechas_descarga(connection: sqlite3.Connection) -> None:
                 fecha_descarga_real
             )
             """
+        )
+
+
+def _migrate_viaje_gas_oil_lts(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "viajes"):
+        return
+
+    columns = _table_columns(connection, "viajes")
+    if "gas_oil_lts" not in columns:
+        connection.execute(
+            "ALTER TABLE viajes ADD COLUMN gas_oil_lts NUMERIC NOT NULL DEFAULT 0"
         )
 
 

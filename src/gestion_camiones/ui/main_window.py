@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -50,6 +51,11 @@ from gestion_camiones.data.repositories import (
     ViajeRepository,
 )
 from gestion_camiones.data.schema import clear_database
+from gestion_camiones.services.report_exporter import (
+    build_monthly_report_summary,
+    export_monthly_report_excel,
+    export_monthly_report_pdf,
+)
 from gestion_camiones.services.updater import (
     ReleaseInfo,
     UpdateCheckError,
@@ -67,6 +73,7 @@ TAB_LABELS = [
     "Vehiculos",
     "Peajes",
     "Estadisticas",
+    "Imprimir",
     "Opciones",
 ]
 
@@ -106,6 +113,10 @@ TAB_HEADERS = {
     "Estadisticas": (
         "Estadisticas",
         "Resumen de viajes e importes cobrados al cliente.",
+    ),
+    "Imprimir": (
+        "Imprimir",
+        "Exportacion mensual de viajes en Excel y PDF.",
     ),
     "Opciones": (
         "Opciones",
@@ -167,6 +178,20 @@ class MainWindow(QMainWindow):
         self.billing_content_widget: QWidget | None = None
         self.billing_toggle_button: QPushButton | None = None
         self.billing_panel_expanded = True
+        self.print_mode_combo: QComboBox | None = None
+        self.print_month_combo: QComboBox | None = None
+        self.print_year_combo: QComboBox | None = None
+        self.print_from_date: QDateEdit | None = None
+        self.print_to_date: QDateEdit | None = None
+        self.print_table: QTableWidget | None = None
+        self.print_total_card: MetricCard | None = None
+        self.print_count_card: MetricCard | None = None
+        self.print_mode_card: QFrame | None = None
+        self.print_month_card: QFrame | None = None
+        self.print_year_card: QFrame | None = None
+        self.print_from_card: QFrame | None = None
+        self.print_to_card: QFrame | None = None
+        self.print_rows: list[ViajeResumen] = []
         self.form_widgets: dict[str, QWidget] = {}
 
         self.setWindowTitle("Gestion de viajes")
@@ -264,7 +289,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_vehiculos_tab(), TAB_LABELS[6])
         self.tabs.addTab(self._build_peajes_tab(), TAB_LABELS[7])
         self.tabs.addTab(self._build_statistics_tab(), TAB_LABELS[8])
-        self.tabs.addTab(self._build_options_tab(), TAB_LABELS[9])
+        self.tabs.addTab(self._build_print_tab(), TAB_LABELS[9])
+        self.tabs.addTab(self._build_options_tab(), TAB_LABELS[10])
         self.tabs.currentChanged.connect(self._sync_tab_header)
         content_layout.addWidget(self.tabs, stretch=1)
         self._sync_tab_header(0)
@@ -402,6 +428,8 @@ class MainWindow(QMainWindow):
         fecha_descarga_vacio.setDisplayFormat("yyyy-MM-dd")
         fecha_descarga_vacio.setDate(QDate.currentDate())
 
+        gas_oil_lts = self._decimal_input()
+
         peajes = QListWidget()
         peajes.setFixedHeight(92)
         for item in self.peaje_repository.list_all():
@@ -432,6 +460,7 @@ class MainWindow(QMainWindow):
             "fecha_descarga_demora": fecha_descarga_demora,
             "vacio": vacio,
             "fecha_descarga_vacio": fecha_descarga_vacio,
+            "gas_oil_lts": gas_oil_lts,
             "peajes": peajes,
         }
 
@@ -452,6 +481,7 @@ class MainWindow(QMainWindow):
         right_form.addRow("F.Desc demora", fecha_descarga_demora)
         right_form.addRow("Vacio", vacio)
         right_form.addRow("F.Desc vacio", fecha_descarga_vacio)
+        right_form.addRow("Gas oil (lts)", gas_oil_lts)
         right_form.addRow("Peajes", peajes)
 
         form_grid.addLayout(left_form, 0, 0)
@@ -545,6 +575,175 @@ class MainWindow(QMainWindow):
         layout.addLayout(self._build_metrics())
         layout.addStretch()
         return tab
+
+    def _build_print_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(20)
+
+        layout.addWidget(self._build_print_controls_panel())
+        layout.addWidget(self._build_print_preview_panel(), stretch=1)
+        return tab
+
+    def _build_print_controls_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(14)
+
+        title = QLabel("Reporte mensual")
+        title.setObjectName("sectionTitle")
+        description = QLabel(
+            "Selecciona un mes y exporta la vista mensual base en Excel o PDF."
+        )
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+
+        current_date = QDate.currentDate()
+        mode_combo = self._build_combo(
+            [
+                ("Mensual", "monthly"),
+                ("Anual", "annual"),
+                ("Cliente Ricco", "ricco"),
+            ]
+        )
+        mode_combo.currentIndexChanged.connect(self._refresh_print_mode_ui)
+        mode_combo.currentIndexChanged.connect(self._refresh_print_report)
+        self.print_mode_combo = mode_combo
+        mode_card = self._build_billing_filter_card("Modo", mode_combo)
+        self.print_mode_card = mode_card
+        controls.addWidget(mode_card)
+
+        month_combo = self._build_combo(
+            [
+                (month_name, month_number)
+                for month_number, month_name in enumerate(MONTH_NAMES, start=1)
+            ]
+        )
+        month_combo.setCurrentIndex(current_date.month() - 1)
+        month_combo.currentIndexChanged.connect(self._refresh_print_report)
+        self.print_month_combo = month_combo
+
+        years = {
+            year
+            for year in self.viaje_repository.billing_years()
+            if year <= current_date.year()
+        }
+        years.update(range(current_date.year() - 1, current_date.year() + 1))
+        year_combo = self._build_combo([(str(year), year) for year in sorted(years)])
+        year_index = year_combo.findData(current_date.year())
+        if year_index >= 0:
+            year_combo.setCurrentIndex(year_index)
+        year_combo.currentIndexChanged.connect(self._refresh_print_report)
+        self.print_year_combo = year_combo
+
+        month_card = self._build_billing_filter_card("Mes", month_combo)
+        year_card = self._build_billing_filter_card("Año", year_combo)
+        self.print_month_card = month_card
+        self.print_year_card = year_card
+        controls.addWidget(month_card)
+        controls.addWidget(year_card)
+
+        from_date = QDateEdit()
+        from_date.setCalendarPopup(True)
+        from_date.setDisplayFormat("yyyy-MM-dd")
+        from_date.setDate(QDate(current_date.year(), current_date.month(), 1))
+        from_date.dateChanged.connect(self._refresh_print_report)
+        self.print_from_date = from_date
+        from_card = self._build_billing_filter_card("Desde", from_date)
+        self.print_from_card = from_card
+        controls.addWidget(from_card)
+
+        to_date = QDateEdit()
+        to_date.setCalendarPopup(True)
+        to_date.setDisplayFormat("yyyy-MM-dd")
+        to_date.setDate(current_date)
+        to_date.dateChanged.connect(self._refresh_print_report)
+        self.print_to_date = to_date
+        to_card = self._build_billing_filter_card("Hasta", to_date)
+        self.print_to_card = to_card
+        controls.addWidget(to_card)
+
+        count_card = MetricCard("Viajes del periodo", "0")
+        count_card.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.print_count_card = count_card
+        controls.addWidget(count_card)
+
+        total_card = MetricCard("Total del periodo", "$ 0")
+        total_card.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.print_total_card = total_card
+        controls.addWidget(total_card)
+        controls.addStretch()
+
+        export_excel_button = QPushButton("Exportar Excel")
+        export_excel_button.setObjectName("primaryButton")
+        export_excel_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        export_excel_button.clicked.connect(self._export_print_excel)
+
+        export_pdf_button = QPushButton("Exportar PDF")
+        export_pdf_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        export_pdf_button.clicked.connect(self._export_print_pdf)
+
+        controls.addWidget(export_excel_button)
+        controls.addWidget(export_pdf_button)
+
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addLayout(controls)
+        self._refresh_print_mode_ui()
+        return panel
+
+    def _build_print_preview_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("panelHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(16, 0, 16, 0)
+        header_title = QLabel("Vista previa mensual")
+        header_title.setObjectName("sectionTitle")
+        header_layout.addWidget(header_title)
+        header_layout.addStretch()
+
+        table = QTableWidget(0, 14)
+        table.setHorizontalHeaderLabels(
+            [
+                "Fecha",
+                "Cliente",
+                "Carga",
+                "Lugar carga",
+                "Lugar descarga",
+                "Chofer",
+                "Camion",
+                "Tarifa",
+                "Demora",
+                "Vacio",
+                "Gas oil (lts)",
+                "Peajes",
+                "Total",
+                "Estado",
+            ]
+        )
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.print_table = table
+
+        layout.addWidget(header)
+        layout.addWidget(table, stretch=1)
+        self._refresh_print_report()
+        return panel
 
     def _build_options_tab(self) -> QWidget:
         content = QWidget()
@@ -1087,7 +1286,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self.table = QTableWidget(0, 20)
+        self.table = QTableWidget(0, 21)
         self.table.setHorizontalHeaderLabels(
             [
                 "ID",
@@ -1107,13 +1306,14 @@ class MainWindow(QMainWindow):
                 "F.Desc demora",
                 "Vacio $",
                 "F.Desc vacio",
+                "Gas oil (lts)",
                 "Peajes $",
                 "Costo total $",
                 "Estado",
             ]
         )
         self.table.setColumnHidden(0, True)
-        self.table.setColumnHidden(19, True)
+        self.table.setColumnHidden(20, True)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
@@ -1142,6 +1342,7 @@ class MainWindow(QMainWindow):
 
         self.table.resizeColumnsToContents()
         self._refresh_billing_months()
+        self._refresh_print_report()
 
     def _viaje_to_row(self, viaje: ViajeResumen) -> list[str]:
         return [
@@ -1162,6 +1363,7 @@ class MainWindow(QMainWindow):
             viaje.fecha_descarga_demora,
             _format_money(viaje.vacio),
             viaje.fecha_descarga_vacio,
+            _format_decimal(viaje.gas_oil_lts),
             _format_money(viaje.peajes),
             _format_money(viaje.costo_total),
             viaje.estado,
@@ -1637,6 +1839,7 @@ class MainWindow(QMainWindow):
                 fecha_descarga_demora=str(values["fecha_descarga_demora"]),
                 vacio=float(values["vacio"]),
                 fecha_descarga_vacio=str(values["fecha_descarga_vacio"]),
+                gas_oil_lts=float(values["gas_oil_lts"]),
                 estado=str(values["estado"]).strip(),
             )
             self._refresh_table()
@@ -1905,7 +2108,13 @@ class MainWindow(QMainWindow):
                 "value": self._cell(row, 16),
                 "required": False,
             },
-            {"key": "estado", "label": "Estado", "value": self._cell(row, 19)},
+            {
+                "key": "gas_oil_lts",
+                "label": "Gas oil (lts)",
+                "type": "decimal",
+                "value": self._decimal_from_display(self._cell(row, 17)),
+            },
+            {"key": "estado", "label": "Estado", "value": self._cell(row, 20)},
         ]
 
     def _find_by_id(self, items: list[object], item_id: int) -> object | None:
@@ -1922,6 +2131,10 @@ class MainWindow(QMainWindow):
 
     def _money_from_display(self, value: str) -> float:
         clean = value.replace("$", "").replace(".", "").replace(",", ".").strip()
+        return float(clean or 0)
+
+    def _decimal_from_display(self, value: str) -> float:
+        clean = value.replace(".", "").replace(",", ".").strip()
         return float(clean or 0)
 
     def _save_viaje(self) -> None:
@@ -1989,11 +2202,12 @@ class MainWindow(QMainWindow):
             fecha_descarga_demora=fecha_descarga_demora,
             vacio=self._money_value("vacio"),
             fecha_descarga_vacio=fecha_descarga_vacio,
+            gas_oil_lts=self._decimal_value("gas_oil_lts"),
             peaje_ids=peaje_ids,
         )
 
     def _clear_viaje_form(self) -> None:
-        for key in ("tarifa", "demora", "vacio"):
+        for key in ("tarifa", "demora", "vacio", "gas_oil_lts"):
             widget = self.form_widgets[key]
             if isinstance(widget, QDoubleSpinBox):
                 widget.setValue(0)
@@ -2092,6 +2306,194 @@ class MainWindow(QMainWindow):
 
         if self.billing_total_card is not None:
             self.billing_total_card.set_value(_format_money(annual_total))
+
+    def _refresh_print_report(self) -> None:
+        if (
+            self.print_mode_combo is None
+            or self.print_month_combo is None
+            or self.print_year_combo is None
+            or self.print_from_date is None
+            or self.print_to_date is None
+            or self.print_table is None
+        ):
+            return
+
+        mode = self._selected_print_mode()
+        year = int(self.print_year_combo.currentData() or QDate.currentDate().year())
+        if mode == "annual":
+            rows = self.viaje_repository.annual_report_rows(year)
+        elif mode == "ricco":
+            start_date = self.print_from_date.date().toString("yyyy-MM-dd")
+            end_date = self.print_to_date.date().toString("yyyy-MM-dd")
+            if start_date > end_date:
+                rows = []
+            else:
+                rows = self.viaje_repository.period_report_rows(
+                    start_date,
+                    end_date,
+                    client_search="ricco",
+                )
+        else:
+            month = int(self.print_month_combo.currentData() or QDate.currentDate().month())
+            rows = self.viaje_repository.monthly_report_rows(year, month)
+
+        summary = build_monthly_report_summary(rows)
+        self.print_rows = rows
+
+        if self.print_count_card is not None:
+            self.print_count_card.set_value(str(summary.trip_count))
+        if self.print_total_card is not None:
+            self.print_total_card.set_value(_format_money(summary.total_amount))
+
+        self.print_table.setRowCount(len(rows))
+        for row_index, viaje in enumerate(rows):
+            for column_index, value in enumerate(self._print_row_values(viaje)):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.print_table.setItem(row_index, column_index, item)
+        self.print_table.resizeColumnsToContents()
+
+    def _refresh_print_mode_ui(self) -> None:
+        mode = self._selected_print_mode()
+        is_monthly = mode == "monthly"
+        is_annual = mode == "annual"
+        is_ricco = mode == "ricco"
+
+        if self.print_month_card is not None:
+            self.print_month_card.setVisible(is_monthly)
+        if self.print_year_card is not None:
+            self.print_year_card.setVisible(is_monthly or is_annual)
+        if self.print_from_card is not None:
+            self.print_from_card.setVisible(is_ricco)
+        if self.print_to_card is not None:
+            self.print_to_card.setVisible(is_ricco)
+
+    def _export_print_excel(self) -> None:
+        if not self.print_rows:
+            QMessageBox.information(
+                self,
+                "Imprimir",
+                "No hay viajes cargados para el filtro seleccionado.",
+            )
+            return
+
+        default_name = f"{self._selected_print_file_stem()}.xlsx"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Guardar reporte Excel",
+            str(self.database_path.parent / default_name),
+            "Archivos Excel (*.xlsx)",
+        )
+        if not file_path:
+            return
+
+        export_monthly_report_excel(
+            Path(file_path),
+            self._selected_print_period_label(),
+            self.print_rows,
+            report_title=self._selected_print_title(),
+        )
+        QMessageBox.information(
+            self,
+            "Imprimir",
+            f"Reporte Excel generado en:\n{file_path}",
+        )
+
+    def _export_print_pdf(self) -> None:
+        if not self.print_rows:
+            QMessageBox.information(
+                self,
+                "Imprimir",
+                "No hay viajes cargados para el filtro seleccionado.",
+            )
+            return
+
+        default_name = f"{self._selected_print_file_stem()}.pdf"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Guardar reporte PDF",
+            str(self.database_path.parent / default_name),
+            "Archivos PDF (*.pdf)",
+        )
+        if not file_path:
+            return
+
+        export_monthly_report_pdf(
+            Path(file_path),
+            self._selected_print_period_label(),
+            self.print_rows,
+            report_title=self._selected_print_title(),
+        )
+        QMessageBox.information(
+            self,
+            "Imprimir",
+            f"Reporte PDF generado en:\n{file_path}",
+        )
+
+    def _selected_print_file_stem(self) -> str:
+        mode = self._selected_print_mode()
+        if mode == "annual":
+            return f"reporte-anual-{self._selected_print_period_key()}"
+        if mode == "ricco":
+            return f"cliente-ricco-{self._selected_print_period_key()}"
+        return f"reporte-mensual-{self._selected_print_period_key()}"
+
+    def _selected_print_mode(self) -> str:
+        if self.print_mode_combo is None:
+            return "monthly"
+        return str(self.print_mode_combo.currentData() or "monthly")
+
+    def _selected_print_title(self) -> str:
+        mode = self._selected_print_mode()
+        if mode == "annual":
+            return "Reporte anual"
+        if mode == "ricco":
+            return "Reporte Cliente Ricco"
+        return "Reporte mensual"
+
+    def _selected_print_period_key(self) -> str:
+        mode = self._selected_print_mode()
+        if mode == "annual":
+            year = int(self.print_year_combo.currentData() or QDate.currentDate().year())
+            return str(year)
+        if mode == "ricco":
+            start_date = self.print_from_date.date().toString("yyyy-MM-dd")
+            end_date = self.print_to_date.date().toString("yyyy-MM-dd")
+            return f"{start_date}_a_{end_date}"
+        month = int(self.print_month_combo.currentData() or QDate.currentDate().month())
+        year = int(self.print_year_combo.currentData() or QDate.currentDate().year())
+        return f"{year:04d}-{month:02d}"
+
+    def _selected_print_period_label(self) -> str:
+        mode = self._selected_print_mode()
+        if mode == "annual":
+            year = int(self.print_year_combo.currentData() or QDate.currentDate().year())
+            return str(year)
+        if mode == "ricco":
+            start_date = self.print_from_date.date().toString("yyyy-MM-dd")
+            end_date = self.print_to_date.date().toString("yyyy-MM-dd")
+            return f"Desde {start_date} hasta {end_date}"
+        month = int(self.print_month_combo.currentData() or QDate.currentDate().month())
+        year = int(self.print_year_combo.currentData() or QDate.currentDate().year())
+        return f"{MONTH_NAMES[month - 1]} {year}"
+
+    def _print_row_values(self, viaje: ViajeResumen) -> list[str]:
+        return [
+            viaje.fecha,
+            viaje.cliente,
+            viaje.carga,
+            viaje.lugar_carga,
+            viaje.lugar_descarga,
+            viaje.chofer,
+            viaje.camion,
+            _format_money(viaje.tarifa),
+            _format_money(viaje.demora),
+            _format_money(viaje.vacio),
+            _format_decimal(viaje.gas_oil_lts),
+            _format_money(viaje.peajes),
+            _format_money(viaje.costo_total),
+            viaje.estado,
+        ]
 
     def _go_to_create_tab(self) -> None:
         self._go_to_tab_by_label("Cargar viaje")
@@ -2221,6 +2623,13 @@ class MainWindow(QMainWindow):
         spin.setPrefix("$ ")
         return spin
 
+    def _decimal_input(self) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(0, 999_999_999)
+        spin.setDecimals(2)
+        spin.setSingleStep(10)
+        return spin
+
     def _combo_value(self, key: str) -> object:
         widget = self.form_widgets[key]
         if not isinstance(widget, QComboBox):
@@ -2270,6 +2679,12 @@ class MainWindow(QMainWindow):
         widget = self.form_widgets[key]
         if not isinstance(widget, QDoubleSpinBox):
             raise ValueError("Campo de importe invalido.")
+        return float(widget.value())
+
+    def _decimal_value(self, key: str) -> float:
+        widget = self.form_widgets[key]
+        if not isinstance(widget, QDoubleSpinBox):
+            raise ValueError("Campo decimal invalido.")
         return float(widget.value())
 
     def _checked_peaje_ids(self) -> tuple[int, ...]:
@@ -2323,6 +2738,12 @@ class RecordDialog(QDialog):
                 widget.setDecimals(2)
                 widget.setSingleStep(1000)
                 widget.setPrefix("$ ")
+                widget.setValue(float(value or 0))
+            elif field_type == "decimal":
+                widget = QDoubleSpinBox()
+                widget.setRange(0, 999_999_999)
+                widget.setDecimals(2)
+                widget.setSingleStep(10)
                 widget.setValue(float(value or 0))
             elif field_type == "combo":
                 widget = QComboBox()
@@ -2418,6 +2839,10 @@ class MetricCard(QFrame):
 
 def _format_money(value: float) -> str:
     return f"$ {value:,.0f}".replace(",", ".")
+
+
+def _format_decimal(value: float) -> str:
+    return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def _month_key(date: QDate) -> str:

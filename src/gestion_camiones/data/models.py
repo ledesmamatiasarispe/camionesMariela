@@ -106,6 +106,7 @@ class ViajeResumen:
     fecha_descarga_demora: str
     vacio: float
     fecha_descarga_vacio: str
+    gas_oil_lts: float
     peajes: float
     estado: str
 
@@ -132,4 +133,5 @@ class ViajeCreate:
     fecha_descarga_demora: str
     vacio: float
     fecha_descarga_vacio: str
+    gas_oil_lts: float
     peaje_ids: tuple[int, ...]

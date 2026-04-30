@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from contextlib import closing
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from gestion_camiones.data.models import (
@@ -42,6 +42,7 @@ class ViajeRepository:
                 COALESCE(viajes.fecha_descarga_demora, '') AS fecha_descarga_demora,
                 viajes.vacio,
                 COALESCE(viajes.fecha_descarga_vacio, '') AS fecha_descarga_vacio,
+                COALESCE(viajes.gas_oil_lts, 0) AS gas_oil_lts,
                 COALESCE(
                     (
                         SELECT SUM(viaje_peajes.costo)
@@ -149,10 +150,11 @@ class ViajeRepository:
                     fecha_descarga_demora,
                     vacio,
                     fecha_descarga_vacio,
+                    gas_oil_lts,
                     peajes,
                     observaciones,
                     estado
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     viaje.fecha,
@@ -170,6 +172,7 @@ class ViajeRepository:
                     viaje.fecha_descarga_demora,
                     viaje.vacio,
                     viaje.fecha_descarga_vacio,
+                    viaje.gas_oil_lts,
                     peajes_total,
                     viaje.observaciones,
                     "Programado",
@@ -201,6 +204,7 @@ class ViajeRepository:
         fecha_descarga_demora: str,
         vacio: float,
         fecha_descarga_vacio: str,
+        gas_oil_lts: float,
         estado: str,
     ) -> None:
         with closing(self._connect()) as connection:
@@ -216,6 +220,7 @@ class ViajeRepository:
                     fecha_descarga_demora = ?,
                     vacio = ?,
                     fecha_descarga_vacio = ?,
+                    gas_oil_lts = ?,
                     estado = ?,
                     actualizado_en = CURRENT_TIMESTAMP
                 WHERE id = ?
@@ -229,6 +234,7 @@ class ViajeRepository:
                     fecha_descarga_demora,
                     vacio,
                     fecha_descarga_vacio,
+                    gas_oil_lts,
                     estado,
                     viaje_id,
                 ),
@@ -313,6 +319,35 @@ class ViajeRepository:
             if value.isdigit():
                 years.append(int(value))
         return years
+
+    def monthly_report_rows(self, year: int, month: int) -> list[ViajeResumen]:
+        period = f"{year:04d}-{month:02d}"
+        return [viaje for viaje in self.list_resumen() if viaje.fecha.startswith(period)]
+
+    def annual_report_rows(self, year: int) -> list[ViajeResumen]:
+        period = f"{year:04d}-"
+        return [viaje for viaje in self.list_resumen() if viaje.fecha.startswith(period)]
+
+    def period_report_rows(
+        self,
+        start_date: str,
+        end_date: str,
+        *,
+        client_search: str = "",
+    ) -> list[ViajeResumen]:
+        normalized_search = client_search.strip().lower()
+        rows = [
+            viaje
+            for viaje in self.list_resumen()
+            if start_date <= viaje.fecha <= end_date
+        ]
+        if not normalized_search:
+            return rows
+        return [
+            viaje
+            for viaje in rows
+            if normalized_search in viaje.cliente.lower()
+        ]
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
