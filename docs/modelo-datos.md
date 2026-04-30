@@ -39,12 +39,15 @@ Esta decision permite avanzar con la estructura sin perder informacion. Si el si
 
 ### clientes
 
-Guarda los clientes de los viajes.
+Guarda los clientes de los viajes como entidad propia.
 
 Campos principales:
 
 - `id`
 - `nombre`
+- `domicilio_fiscal`
+- `email`
+- `numero_contacto`
 - `activo`
 
 ### cargas
@@ -137,6 +140,20 @@ Campos iniciales:
 - `fecha_vencimiento_registro`: vencimiento de su registro/licencia.
 
 En `viajes` se guarda `chofer_id`, para mantener la relacion sin duplicar datos personales en cada viaje.
+
+## Objeto cliente
+
+El cliente es una entidad propia, no un texto libre dentro del viaje.
+
+Campos iniciales:
+
+- `id`: identificador interno.
+- `nombre`: razon social o nombre visible del cliente.
+- `domicilio_fiscal`: domicilio fiscal del cliente.
+- `email`: correo de contacto.
+- `numero_contacto`: telefono o numero de contacto principal.
+
+En `viajes` se guarda `cliente_id`, para mantener la relacion sin duplicar datos fiscales o de contacto en cada viaje.
 
 ## Objeto vehiculo
 

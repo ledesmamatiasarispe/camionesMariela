@@ -11,6 +11,9 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS clientes (
     id INTEGER PRIMARY KEY,
     nombre TEXT NOT NULL UNIQUE,
+    domicilio_fiscal TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    numero_contacto TEXT NOT NULL DEFAULT '',
     activo INTEGER NOT NULL DEFAULT 1,
     creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -88,6 +91,8 @@ CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_programada
 
 
 POST_MIGRATION_SQL = """
+CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
+CREATE INDEX IF NOT EXISTS idx_clientes_email ON clientes(email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_choferes_dni ON choferes(dni);
 CREATE INDEX IF NOT EXISTS idx_choferes_apellido_nombre ON choferes(apellido, nombre);
 CREATE INDEX IF NOT EXISTS idx_vehiculos_tipo ON vehiculos(tipo);
@@ -103,10 +108,34 @@ CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_programada
 
 
 SEED_SQL = """
-INSERT OR IGNORE INTO clientes (id, nombre) VALUES
-    (1, 'Romero e hijos'),
-    (2, 'Cliente Sur'),
-    (3, 'Proveedor Norte');
+INSERT OR IGNORE INTO clientes (
+    id,
+    nombre,
+    domicilio_fiscal,
+    email,
+    numero_contacto
+) VALUES
+    (
+        1,
+        'Romero e hijos',
+        'Domicilio fiscal pendiente',
+        'administracion@romero.local',
+        ''
+    ),
+    (
+        2,
+        'Cliente Sur',
+        'Domicilio fiscal pendiente',
+        'contacto@clientesur.local',
+        ''
+    ),
+    (
+        3,
+        'Proveedor Norte',
+        'Domicilio fiscal pendiente',
+        'contacto@proveedornorte.local',
+        ''
+    );
 
 INSERT OR IGNORE INTO cargas (id, descripcion) VALUES
     (1, 'Materia prima'),
@@ -183,6 +212,7 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
 
     with closing(sqlite3.connect(database_path)) as connection:
         connection.executescript(SCHEMA_SQL)
+        _migrate_clientes(connection)
         _migrate_choferes(connection)
         _migrate_vehiculos(connection)
         _migrate_viajes_to_vehiculos(connection)
@@ -190,6 +220,21 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
         if seed:
             connection.executescript(SEED_SQL)
         connection.commit()
+
+
+def _migrate_clientes(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "clientes")
+
+    if "domicilio_fiscal" not in columns:
+        connection.execute(
+            "ALTER TABLE clientes ADD COLUMN domicilio_fiscal TEXT NOT NULL DEFAULT ''"
+        )
+    if "email" not in columns:
+        connection.execute("ALTER TABLE clientes ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+    if "numero_contacto" not in columns:
+        connection.execute(
+            "ALTER TABLE clientes ADD COLUMN numero_contacto TEXT NOT NULL DEFAULT ''"
+        )
 
 
 def _migrate_choferes(connection: sqlite3.Connection) -> None:

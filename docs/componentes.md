@@ -16,6 +16,7 @@
 
 - Alta/edicion de viaje.
 - Alta/edicion de clientes, cargas, lugares, choferes y vehiculos.
+- Datos de cliente: nombre, domicilio fiscal, email y numero de contacto.
 - Cambio de estado.
 - Carga de documentacion.
 - Registro de observaciones.

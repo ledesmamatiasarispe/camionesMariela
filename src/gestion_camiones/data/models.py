@@ -4,6 +4,16 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class Cliente:
+    id: int
+    nombre: str
+    domicilio_fiscal: str
+    email: str
+    numero_contacto: str
+    activo: bool
+
+
+@dataclass(frozen=True)
 class Chofer:
     id: int
     dni: str

@@ -4,7 +4,7 @@ from contextlib import closing
 import sqlite3
 from pathlib import Path
 
-from gestion_camiones.data.models import Chofer, Vehiculo, ViajeResumen
+from gestion_camiones.data.models import Chofer, Cliente, Vehiculo, ViajeResumen
 
 
 class ViajeRepository:
@@ -46,6 +46,8 @@ class ViajeRepository:
         if search.strip():
             query += """
                 WHERE clientes.nombre LIKE ?
+                   OR clientes.email LIKE ?
+                   OR clientes.numero_contacto LIKE ?
                    OR cargas.descripcion LIKE ?
                    OR lugar_carga.nombre LIKE ?
                    OR lugar_descarga.nombre LIKE ?
@@ -59,6 +61,8 @@ class ViajeRepository:
             """
             pattern = f"%{search.strip()}%"
             params = (
+                pattern,
+                pattern,
                 pattern,
                 pattern,
                 pattern,
@@ -98,6 +102,51 @@ class ViajeRepository:
             "Con demora": demorados,
             "Finalizados": finalizados,
         }
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+
+class ClienteRepository:
+    def __init__(self, database_path: Path) -> None:
+        self.database_path = database_path
+
+    def list_all(self, include_inactive: bool = False) -> list[Cliente]:
+        query = """
+            SELECT
+                id,
+                nombre,
+                domicilio_fiscal,
+                email,
+                numero_contacto,
+                activo
+            FROM clientes
+        """
+        params: tuple[int, ...] = ()
+
+        if not include_inactive:
+            query += " WHERE activo = ?"
+            params = (1,)
+
+        query += " ORDER BY nombre"
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, params).fetchall()
+
+        return [
+            Cliente(
+                id=row["id"],
+                nombre=row["nombre"],
+                domicilio_fiscal=row["domicilio_fiscal"],
+                email=row["email"],
+                numero_contacto=row["numero_contacto"],
+                activo=bool(row["activo"]),
+            )
+            for row in rows
+        ]
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
