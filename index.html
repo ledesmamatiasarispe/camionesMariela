@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sistema de gestion de camiones</title>
+    <link rel="stylesheet" href="styles/design-system.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegacion principal">
+        <div class="brand">
+          <strong>Gestion Camiones</strong>
+          <span>Laboratorio y produccion</span>
+        </div>
+        <nav>
+          <ul class="nav-list">
+            <li><a class="nav-link active" href="#">Tablero</a></li>
+            <li><a class="nav-link" href="#">Camiones</a></li>
+            <li><a class="nav-link" href="#">Turnos</a></li>
+            <li><a class="nav-link" href="#">Documentacion</a></li>
+            <li><a class="nav-link" href="#">Reportes</a></li>
+            <li><a class="nav-link" href="#">Configuracion</a></li>
+          </ul>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="page-title">
+            <h1>Tablero operativo</h1>
+            <p>Resumen diario de camiones, estados y demoras.</p>
+          </div>
+          <div class="toolbar" aria-label="Acciones del tablero">
+            <input class="search-input" type="search" placeholder="Buscar patente o proveedor">
+            <select class="filter-select" aria-label="Filtrar por estado">
+              <option>Todos los estados</option>
+              <option>Programado</option>
+              <option>En espera</option>
+              <option>Autorizado</option>
+              <option>Observado</option>
+            </select>
+            <button class="primary" type="button">Nuevo camion</button>
+          </div>
+        </header>
+
+        <section class="content">
+          <div class="metrics" aria-label="Indicadores">
+            <article class="metric">
+              <span>Programados hoy</span>
+              <strong>18</strong>
+            </article>
+            <article class="metric">
+              <span>En planta</span>
+              <strong>7</strong>
+            </article>
+            <article class="metric">
+              <span>Observados</span>
+              <strong>2</strong>
+            </article>
+            <article class="metric">
+              <span>Finalizados</span>
+              <strong>9</strong>
+            </article>
+          </div>
+
+          <section class="panel" aria-labelledby="camiones-title">
+            <div class="panel-header">
+              <h2 id="camiones-title">Camiones activos</h2>
+              <button type="button">Exportar</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Patente</th>
+                    <th>Proveedor</th>
+                    <th>Operacion</th>
+                    <th>Estado</th>
+                    <th>Ingreso</th>
+                    <th>Responsable</th>
+                    <th>Accion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>AB123CD</td>
+                    <td>Romero e hijos</td>
+                    <td>Descarga</td>
+                    <td><span class="status info">En laboratorio</span></td>
+                    <td>08:25</td>
+                    <td>M. Laboratorio</td>
+                    <td><button type="button">Ver</button></td>
+                  </tr>
+                  <tr>
+                    <td>AE456FG</td>
+                    <td>Proveedor Norte</td>
+                    <td>Carga</td>
+                    <td><span class="status warning">En espera</span></td>
+                    <td>09:10</td>
+                    <td>Porteria</td>
+                    <td><button type="button">Ver</button></td>
+                  </tr>
+                  <tr>
+                    <td>AD789HI</td>
+                    <td>Cliente Sur</td>
+                    <td>Retiro</td>
+                    <td><span class="status danger">Observado</span></td>
+                    <td>09:45</td>
+                    <td>Calidad</td>
+                    <td><button type="button">Ver</button></td>
+                  </tr>
+                  <tr>
+                    <td>AC321JK</td>
+                    <td>Transporte Oeste</td>
+                    <td>Descarga</td>
+                    <td><span class="status success">Autorizado</span></td>
+                    <td>10:05</td>
+                    <td>Produccion</td>
+                    <td><button type="button">Ver</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

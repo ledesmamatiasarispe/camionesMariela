@@ -1,0 +1,26 @@
+# Sistema
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Dependencias futuras
+node_modules/
+.venv/
+venv/
+
+# Builds futuros
+dist/
+build/
+*.spec.bak
+
+# Entorno local
+.env
+.env.local
