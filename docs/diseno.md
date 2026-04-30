@@ -11,7 +11,7 @@
 
 ## Tono visual
 
-La app debe sentirse operativa, seria y rapida. No debe parecer una landing comercial. La pantalla principal debe mostrar trabajo real: viajes, vehiculos, estados, tiempos, alertas y acciones.
+La app debe sentirse operativa, seria y rapida. No debe parecer una landing comercial. La pantalla principal debe mostrar trabajo real: viajes, vehiculos, estados, fechas, importes, alertas y acciones.
 
 ## Reglas de estilo
 

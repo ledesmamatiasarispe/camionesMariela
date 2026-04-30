@@ -83,9 +83,9 @@ class ViajeResumen:
     camion: str
     semi: str
     tarifa: float
-    fecha_descarga_programada: str
+    fecha_descarga_tarifa: str
     demora: float
-    fecha_descarga_real: str
+    fecha_descarga_demora: str
     vacio: float
     peajes: float
     estado: str

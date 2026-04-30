@@ -33,9 +33,9 @@ class ViajeRepository:
                 camion.nombre_identificatorio || ' - ' || camion.patente AS camion,
                 COALESCE(semi.nombre_identificatorio || ' - ' || semi.patente, '') AS semi,
                 viajes.tarifa,
-                COALESCE(viajes.fecha_descarga_programada, '') AS fecha_descarga_programada,
+                COALESCE(viajes.fecha_descarga_tarifa, '') AS fecha_descarga_tarifa,
                 viajes.demora,
-                COALESCE(viajes.fecha_descarga_real, '') AS fecha_descarga_real,
+                COALESCE(viajes.fecha_descarga_demora, '') AS fecha_descarga_demora,
                 viajes.vacio,
                 viajes.peajes,
                 viajes.estado
@@ -94,7 +94,7 @@ class ViajeRepository:
                 pattern,
             )
 
-        query += " ORDER BY viajes.fecha_descarga_programada, viajes.id"
+        query += " ORDER BY viajes.fecha_descarga_tarifa, viajes.id"
 
         with closing(self._connect()) as connection:
             rows = connection.execute(query, params).fetchall()

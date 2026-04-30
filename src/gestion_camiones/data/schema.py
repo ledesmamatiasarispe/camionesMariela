@@ -79,9 +79,9 @@ CREATE TABLE IF NOT EXISTS viajes (
     semi_id INTEGER,
     tipo_carga TEXT,
     tarifa NUMERIC NOT NULL DEFAULT 0,
-    fecha_descarga_programada TEXT,
+    fecha_descarga_tarifa TEXT,
     demora NUMERIC NOT NULL DEFAULT 0,
-    fecha_descarga_real TEXT,
+    fecha_descarga_demora TEXT,
     vacio NUMERIC NOT NULL DEFAULT 0,
     peajes NUMERIC NOT NULL DEFAULT 0,
     observaciones TEXT,
@@ -101,8 +101,6 @@ CREATE INDEX IF NOT EXISTS idx_viajes_cliente_id ON viajes(cliente_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_chofer_id ON viajes(chofer_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_camion_id ON viajes(camion_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_estado ON viajes(estado);
-CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_programada
-    ON viajes(fecha_descarga_programada);
 """
 
 
@@ -123,8 +121,10 @@ CREATE INDEX IF NOT EXISTS idx_viajes_cliente_id ON viajes(cliente_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_chofer_id ON viajes(chofer_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_camion_id ON viajes(camion_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_estado ON viajes(estado);
-CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_programada
-    ON viajes(fecha_descarga_programada);
+CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_tarifa
+    ON viajes(fecha_descarga_tarifa);
+CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_demora
+    ON viajes(fecha_descarga_demora);
 """
 
 
@@ -220,9 +220,9 @@ INSERT OR IGNORE INTO viajes (
     semi_id,
     tipo_carga,
     tarifa,
-    fecha_descarga_programada,
+    fecha_descarga_tarifa,
     demora,
-    fecha_descarga_real,
+    fecha_descarga_demora,
     vacio,
     peajes,
     observaciones,
@@ -254,6 +254,7 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
         _migrate_choferes(connection)
         _migrate_vehiculos(connection)
         _migrate_viajes_to_vehiculos(connection)
+        _migrate_viaje_fechas_descarga(connection)
         _migrate_lugar_roles_from_viajes(connection)
         connection.executescript(POST_MIGRATION_SQL)
         if seed:
@@ -423,6 +424,22 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
     if _viajes_references_vehiculos(connection):
         return
 
+    columns = _table_columns(connection, "viajes")
+    fecha_descarga_tarifa = (
+        "fecha_descarga_tarifa"
+        if "fecha_descarga_tarifa" in columns
+        else "fecha_descarga_programada"
+        if "fecha_descarga_programada" in columns
+        else "NULL"
+    )
+    fecha_descarga_demora = (
+        "fecha_descarga_demora"
+        if "fecha_descarga_demora" in columns
+        else "fecha_descarga_real"
+        if "fecha_descarga_real" in columns
+        else "NULL"
+    )
+
     connection.execute("PRAGMA foreign_keys = OFF")
     connection.execute("ALTER TABLE viajes RENAME TO viajes_legacy")
     connection.execute(
@@ -438,9 +455,9 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             semi_id INTEGER,
             tipo_carga TEXT,
             tarifa NUMERIC NOT NULL DEFAULT 0,
-            fecha_descarga_programada TEXT,
+            fecha_descarga_tarifa TEXT,
             demora NUMERIC NOT NULL DEFAULT 0,
-            fecha_descarga_real TEXT,
+            fecha_descarga_demora TEXT,
             vacio NUMERIC NOT NULL DEFAULT 0,
             peajes NUMERIC NOT NULL DEFAULT 0,
             observaciones TEXT,
@@ -458,7 +475,7 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
         """
     )
     connection.execute(
-        """
+        f"""
         INSERT INTO viajes (
             id,
             cliente_id,
@@ -470,9 +487,9 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             semi_id,
             tipo_carga,
             tarifa,
-            fecha_descarga_programada,
+            fecha_descarga_tarifa,
             demora,
-            fecha_descarga_real,
+            fecha_descarga_demora,
             vacio,
             peajes,
             observaciones,
@@ -491,9 +508,9 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             CASE WHEN semi_id IS NULL THEN NULL ELSE semi_id + 1000 END,
             tipo_carga,
             tarifa,
-            fecha_descarga_programada,
+            {fecha_descarga_tarifa},
             demora,
-            fecha_descarga_real,
+            {fecha_descarga_demora},
             vacio,
             peajes,
             observaciones,
@@ -505,6 +522,38 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
     )
     connection.execute("DROP TABLE viajes_legacy")
     connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_viaje_fechas_descarga(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "viajes")
+
+    if "fecha_descarga_tarifa" not in columns:
+        connection.execute("ALTER TABLE viajes ADD COLUMN fecha_descarga_tarifa TEXT")
+    if "fecha_descarga_demora" not in columns:
+        connection.execute("ALTER TABLE viajes ADD COLUMN fecha_descarga_demora TEXT")
+
+    columns = _table_columns(connection, "viajes")
+    if "fecha_descarga_programada" in columns:
+        connection.execute(
+            """
+            UPDATE viajes
+            SET fecha_descarga_tarifa = COALESCE(
+                NULLIF(fecha_descarga_tarifa, ''),
+                fecha_descarga_programada
+            )
+            """
+        )
+
+    if "fecha_descarga_real" in columns:
+        connection.execute(
+            """
+            UPDATE viajes
+            SET fecha_descarga_demora = COALESCE(
+                NULLIF(fecha_descarga_demora, ''),
+                fecha_descarga_real
+            )
+            """
+        )
 
 
 def _migrate_lugar_roles_from_viajes(connection: sqlite3.Connection) -> None:

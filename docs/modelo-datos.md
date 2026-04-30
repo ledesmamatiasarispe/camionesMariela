@@ -28,12 +28,13 @@ Encabezados originales:
 
 ## Interpretacion inicial
 
-Hay dos encabezados que conviene confirmar:
+Interpretacion actual:
 
 - `T.CARGA`: por ahora se interpreta como `tipo_carga`.
-- `F.DESC`: aparece dos veces. Por ahora se divide en `fecha_descarga_programada` y `fecha_descarga_real`.
+- El primer `F.DESC`, ubicado despues de `TARIFA`, corresponde a `fecha_descarga_tarifa`.
+- El segundo `F.DESC`, ubicado despues de `DEMORA`, corresponde a `fecha_descarga_demora`.
 
-Esta decision permite avanzar con la estructura sin perder informacion. Si el significado real es distinto, se renombra antes de cargar datos definitivos.
+Esta decision refleja que tarifa y demora tienen cada una su propia fecha de descarga.
 
 ## Tablas maestras
 
@@ -128,9 +129,9 @@ Campos principales:
 - `semi_id`
 - `tipo_carga`
 - `tarifa`: importe cobrado al cliente por tarifa del viaje.
-- `fecha_descarga_programada`
+- `fecha_descarga_tarifa`: fecha de descarga asociada a la tarifa.
 - `demora`: importe cobrado al cliente por demora.
-- `fecha_descarga_real`
+- `fecha_descarga_demora`: fecha de descarga asociada a la demora.
 - `vacio`: importe cobrado al cliente por vacio.
 - `peajes`
 - `observaciones`
@@ -141,6 +142,11 @@ Campos principales:
 `tarifa`, `demora` y `vacio` son precios cobrados al cliente en cada viaje.
 
 No representan cantidades, duraciones ni estados operativos. Deben tratarse como importes monetarios y mostrarse con formato de moneda en la interfaz.
+
+`tarifa` y `demora` tienen cada una su propia fecha de descarga:
+
+- `fecha_descarga_tarifa`
+- `fecha_descarga_demora`
 
 ## Relaciones
 
