@@ -1,11 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
 from pathlib import Path
+import sys
 
 from PyInstaller.utils.hooks import collect_submodules
 
 
 project_root = Path(SPECPATH).parent
+version_scope = {}
+exec(
+    (project_root / "src" / "gestion_camiones" / "__init__.py").read_text(
+        encoding="utf-8"
+    ),
+    version_scope,
+)
+app_version = version_scope["__version__"]
 hiddenimports = collect_submodules("PySide6")
 
 a = Analysis(
@@ -35,16 +45,34 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    target_arch=os.environ.get("PYINSTALLER_TARGET_ARCH"),
     codesign_identity=None,
     entitlements_file=None,
 )
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name="GestionCamiones",
-)
+
+if sys.platform == "darwin":
+    app = BUNDLE(
+        exe,
+        name="GestionCamiones.app",
+        icon=None,
+        bundle_identifier="com.romero.gestioncamiones",
+        version=app_version,
+        info_plist={
+            "CFBundleName": "Gestion Camiones",
+            "CFBundleDisplayName": "Gestion Camiones",
+            "CFBundleShortVersionString": app_version,
+            "CFBundleVersion": app_version,
+            "LSMinimumSystemVersion": "13.0",
+            "NSHighResolutionCapable": True,
+        },
+    )
+else:
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name="GestionCamiones",
+    )

@@ -44,9 +44,8 @@ class ViajeRepository:
                 COALESCE(viajes.fecha_descarga_vacio, '') AS fecha_descarga_vacio,
                 COALESCE(
                     (
-                        SELECT SUM(peajes.costo)
+                        SELECT SUM(viaje_peajes.costo)
                         FROM viaje_peajes
-                        JOIN peajes ON peajes.id = viaje_peajes.peaje_id
                         WHERE viaje_peajes.viaje_id = viajes.id
                     ),
                     viajes.peajes
@@ -180,8 +179,10 @@ class ViajeRepository:
             for peaje_id in viaje.peaje_ids:
                 connection.execute(
                     """
-                    INSERT OR IGNORE INTO viaje_peajes (viaje_id, peaje_id)
-                    VALUES (?, ?)
+                    INSERT OR IGNORE INTO viaje_peajes (viaje_id, peaje_id, costo)
+                    SELECT ?, id, costo
+                    FROM peajes
+                    WHERE id = ?
                     """,
                     (viaje_id, peaje_id),
                 )
@@ -254,9 +255,8 @@ class ViajeRepository:
             ).fetchone()[0]
             peajes_total = connection.execute(
                 """
-                SELECT COALESCE(SUM(peajes.costo), 0)
+                SELECT COALESCE(SUM(costo), 0)
                 FROM viaje_peajes
-                JOIN peajes ON peajes.id = viaje_peajes.peaje_id
                 """
             ).fetchone()[0]
 
@@ -281,9 +281,8 @@ class ViajeRepository:
                     COALESCE(viajes.vacio, 0) AS vacio,
                     COALESCE(
                         (
-                            SELECT SUM(peajes.costo)
+                            SELECT SUM(viaje_peajes.costo)
                             FROM viaje_peajes
-                            JOIN peajes ON peajes.id = viaje_peajes.peaje_id
                             WHERE viaje_peajes.viaje_id = viajes.id
                         ),
                         viajes.peajes,

@@ -26,5 +26,9 @@ def get_database_path() -> Path:
     return get_app_data_dir() / "gestion_camiones.sqlite3"
 
 
+def get_theme_path() -> Path:
+    return get_app_data_dir() / "theme.json"
+
+
 def _safe_app_dir_name(name: str) -> str:
     return name.replace(" ", "_").lower()

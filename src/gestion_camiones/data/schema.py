@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS viaje_peajes (
     id INTEGER PRIMARY KEY,
     viaje_id INTEGER NOT NULL,
     peaje_id INTEGER NOT NULL,
+    costo NUMERIC NOT NULL DEFAULT 0,
     creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (viaje_id, peaje_id),
     FOREIGN KEY (viaje_id) REFERENCES viajes(id),
@@ -289,18 +290,18 @@ INSERT OR IGNORE INTO viajes (
         0, NULL, 0, NULL, 9000, '', 'Finalizado'
     );
 
-INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id)
-SELECT 1, 1, 1
+INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id, costo)
+SELECT 1, 1, 1, 15000
 WHERE EXISTS (SELECT 1 FROM viajes WHERE id = 1)
   AND NOT EXISTS (SELECT 1 FROM viaje_peajes WHERE viaje_id = 1);
 
-INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id)
-SELECT 2, 2, 2
+INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id, costo)
+SELECT 2, 2, 2, 22000
 WHERE EXISTS (SELECT 1 FROM viajes WHERE id = 2)
   AND NOT EXISTS (SELECT 1 FROM viaje_peajes WHERE viaje_id = 2);
 
-INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id)
-SELECT 3, 3, 3
+INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id, costo)
+SELECT 3, 3, 3, 9000
 WHERE EXISTS (SELECT 1 FROM viajes WHERE id = 3)
   AND NOT EXISTS (SELECT 1 FROM viaje_peajes WHERE viaje_id = 3);
 """
@@ -322,11 +323,32 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
         _migrate_tipo_carga(connection)
         _migrate_tipos_carga(connection)
         _migrate_viajes_tipo_carga_dynamic(connection)
+        _migrate_viaje_peajes_snapshot(connection)
         _migrate_peajes_from_viajes(connection)
         _migrate_lugar_roles_from_viajes(connection)
         connection.executescript(POST_MIGRATION_SQL)
         if seed:
             connection.executescript(SEED_SQL)
+            _migrate_viaje_peajes_snapshot(connection)
+        connection.commit()
+
+
+def clear_database(database_path: Path) -> None:
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        for table_name in (
+            "viaje_peajes",
+            "viajes",
+            "lugar_roles",
+            "clientes",
+            "cargas",
+            "lugares",
+            "choferes",
+            "vehiculos",
+            "peajes",
+            "tipos_carga",
+        ):
+            connection.execute(f"DELETE FROM {table_name}")
         connection.commit()
 
 
@@ -622,6 +644,7 @@ def _create_viaje_peajes_table(connection: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY,
             viaje_id INTEGER NOT NULL,
             peaje_id INTEGER NOT NULL,
+            costo NUMERIC NOT NULL DEFAULT 0,
             creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (viaje_id, peaje_id),
             FOREIGN KEY (viaje_id) REFERENCES viajes(id),
@@ -721,7 +744,7 @@ def _migrate_viajes_tipo_carga_dynamic(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         CREATE TEMP TABLE viaje_peajes_legacy AS
-        SELECT viaje_id, peaje_id, creado_en
+        SELECT viaje_id, peaje_id, COALESCE(costo, 0) AS costo, creado_en
         FROM viaje_peajes
         """
     )
@@ -815,8 +838,8 @@ def _migrate_viajes_tipo_carga_dynamic(connection: sqlite3.Connection) -> None:
     _create_viaje_peajes_table(connection)
     connection.execute(
         """
-        INSERT INTO viaje_peajes (viaje_id, peaje_id, creado_en)
-        SELECT viaje_id, peaje_id, creado_en
+        INSERT INTO viaje_peajes (viaje_id, peaje_id, costo, creado_en)
+        SELECT viaje_id, peaje_id, costo, creado_en
         FROM viaje_peajes_legacy
         """
     )
@@ -851,11 +874,12 @@ def _migrate_peajes_from_viajes(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         """
-        INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id)
+        INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id, costo)
         SELECT
             1000000 + viajes.id,
             viajes.id,
-            1000000 + viajes.id
+            1000000 + viajes.id,
+            viajes.peajes
         FROM viajes
         WHERE viajes.peajes > 0
           AND NOT EXISTS (
@@ -863,6 +887,33 @@ def _migrate_peajes_from_viajes(connection: sqlite3.Connection) -> None:
               FROM viaje_peajes
               WHERE viaje_peajes.viaje_id = viajes.id
           )
+        """
+    )
+
+
+def _migrate_viaje_peajes_snapshot(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "viaje_peajes"):
+        return
+
+    columns = _table_columns(connection, "viaje_peajes")
+    if "costo" not in columns:
+        connection.execute(
+            "ALTER TABLE viaje_peajes ADD COLUMN costo NUMERIC NOT NULL DEFAULT 0"
+        )
+
+    connection.execute(
+        """
+        UPDATE viaje_peajes
+        SET costo = COALESCE(
+            NULLIF(costo, 0),
+            (
+                SELECT peajes.costo
+                FROM peajes
+                WHERE peajes.id = viaje_peajes.peaje_id
+            ),
+            0
+        )
+        WHERE COALESCE(costo, 0) = 0
         """
     )
 

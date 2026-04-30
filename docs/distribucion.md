@@ -58,7 +58,14 @@ Como la app sera cliente solamente, la recomendacion inicial es SQLite local y b
 
 El canal de actualizacion sera GitHub Releases.
 
-La app debe consultar periodicamente si hay una version nueva y avisar al usuario. Para la primera etapa, la descarga/instalacion puede requerir confirmacion del usuario.
+La app debe consultar al iniciar si hay una version nueva y avisar al usuario. La descarga puede abrir la release o el instalador recomendado para el sistema actual.
+
+Para macOS, el paquete final esperado es un `.dmg` por arquitectura:
+
+- Apple Silicon: `GestionCamiones-macOS-AppleSilicon.dmg`
+- Intel: `GestionCamiones-macOS-Intel.dmg`
+
+Para que el instalador se abra mejor en versiones recientes de macOS, conviene publicar builds firmados y notarizados.
 
 ## Prueba obligatoria antes de entregar
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import platform
 from collections.abc import Callable
 from pathlib import Path
+from threading import Thread
 
-from PySide6.QtCore import QDate, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtCore import QDate, QObject, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -26,14 +28,16 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
+from gestion_camiones import __version__
+from gestion_camiones.config import GITHUB_OWNER, GITHUB_REPO
 from gestion_camiones.data.models import ViajeCreate, ViajeResumen
 from gestion_camiones.data.repositories import (
     CargaRepository,
@@ -45,7 +49,13 @@ from gestion_camiones.data.repositories import (
     VehiculoRepository,
     ViajeRepository,
 )
-
+from gestion_camiones.data.schema import clear_database
+from gestion_camiones.services.updater import (
+    ReleaseInfo,
+    UpdateCheckError,
+    check_latest_release,
+    select_release_asset,
+)
 
 TAB_LABELS = [
     "Cargar viaje",
@@ -119,11 +129,20 @@ MONTH_NAMES = (
 )
 
 
+class UpdateSignals(QObject):
+    finished = Signal(object, bool)
+    failed = Signal(str, bool)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, viaje_repository: ViajeRepository, database_path: Path) -> None:
         super().__init__()
         self.viaje_repository = viaje_repository
         self.database_path = database_path
+        self.update_signals = UpdateSignals()
+        self.update_signals.finished.connect(self._handle_update_check_finished)
+        self.update_signals.failed.connect(self._handle_update_check_failed)
+        self.update_check_in_progress = False
         self.cliente_repository = ClienteRepository(database_path)
         self.carga_repository = CargaRepository(database_path)
         self.lugar_repository = LugarRepository(database_path)
@@ -143,7 +162,11 @@ class MainWindow(QMainWindow):
         self.save_button: QPushButton | None = None
         self.billing_month_combo: QComboBox | None = None
         self.billing_year_combo: QComboBox | None = None
+        self.billing_total_card: MetricCard | None = None
         self.billing_month_cards: list[MetricCard] = []
+        self.billing_content_widget: QWidget | None = None
+        self.billing_toggle_button: QPushButton | None = None
+        self.billing_panel_expanded = True
         self.form_widgets: dict[str, QWidget] = {}
 
         self.setWindowTitle("Gestion de viajes")
@@ -153,6 +176,7 @@ class MainWindow(QMainWindow):
         self._build_menu()
         self.setCentralWidget(self._build_shell())
         self.setStyleSheet(APP_STYLES)
+        QTimer.singleShot(900, self._check_updates_on_startup)
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("Archivo")
@@ -523,16 +547,86 @@ class MainWindow(QMainWindow):
         return tab
 
     def _build_options_tab(self) -> QWidget:
-        return self._build_static_table_tab(
-            "Opciones",
-            ["Opcion", "Valor"],
-            [
-                (1, ["Base de datos", str(self.database_path)]),
-                (2, ["Actualizaciones", "GitHub Releases"]),
-                (3, ["Modo", "Cliente sin servidor"]),
-            ],
-            show_actions=False,
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(20)
+
+        layout.addWidget(
+            self._build_readonly_table_panel(
+                "Opciones",
+                ["Opcion", "Valor"],
+                self._options_rows(),
+                show_actions=False,
+            )
         )
+        layout.addWidget(self._build_updates_panel())
+        layout.addWidget(self._build_database_tools_panel())
+        layout.addStretch()
+
+        scroll = QScrollArea()
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        return scroll
+
+    def _options_rows(self) -> list[tuple[int, list[str]]]:
+        return [
+            (1, ["Base de datos", str(self.database_path)]),
+            (2, ["Actualizaciones", "GitHub Releases"]),
+            (3, ["Modo", "Cliente sin servidor"]),
+        ]
+
+    def _build_database_tools_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("Base de datos")
+        title.setObjectName("sectionTitle")
+        description = QLabel(
+            "Borra viajes, clientes, lugares, choferes, vehiculos, peajes y tipos de carga."
+        )
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+
+        clear_button = QPushButton("Vaciar base de datos")
+        clear_button.setObjectName("dangerButton")
+        clear_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        clear_button.clicked.connect(self._clear_database_with_confirmation)
+
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addWidget(clear_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        return panel
+
+    def _build_updates_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("Actualizaciones")
+        title.setObjectName("sectionTitle")
+        description = QLabel(
+            "Al iniciar, la app compara la version instalada contra GitHub Releases."
+        )
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+
+        check_button = QPushButton("Buscar actualizaciones ahora")
+        check_button.setObjectName("primaryButton")
+        check_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        check_button.clicked.connect(lambda: self._start_update_check(interactive=True))
+
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addWidget(check_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        return panel
+
 
     def _cliente_rows(self) -> list[tuple[int, list[str]]]:
         return [
@@ -723,10 +817,111 @@ class MainWindow(QMainWindow):
             "T.Carga": self._tipo_carga_rows,
             "Vehiculos": self._vehiculo_rows,
             "Peajes": self._peaje_rows,
+            "Opciones": self._options_rows,
         }
         loader = loaders.get(title)
         if loader is not None:
             self._populate_object_table(title, loader())
+
+    def _check_updates_on_startup(self) -> None:
+        self._start_update_check(interactive=False)
+
+    def _start_update_check(self, *, interactive: bool) -> None:
+        if self.update_check_in_progress:
+            if interactive:
+                QMessageBox.information(
+                    self,
+                    "Actualizaciones",
+                    "Ya hay una comprobacion de actualizaciones en curso.",
+                )
+            return
+
+        self.update_check_in_progress = True
+        Thread(
+            target=self._run_update_check,
+            args=(interactive,),
+            daemon=True,
+        ).start()
+
+    def _run_update_check(self, interactive: bool) -> None:
+        try:
+            release = check_latest_release(
+                GITHUB_OWNER,
+                GITHUB_REPO,
+                __version__,
+            )
+        except UpdateCheckError as exc:
+            self.update_signals.failed.emit(str(exc), interactive)
+            return
+        except Exception as exc:
+            self.update_signals.failed.emit(str(exc), interactive)
+            return
+
+        self.update_signals.finished.emit(release, interactive)
+
+    def _handle_update_check_finished(
+        self,
+        release: object,
+        interactive: bool,
+    ) -> None:
+        self.update_check_in_progress = False
+
+        if release is None:
+            if interactive:
+                QMessageBox.information(
+                    self,
+                    "Actualizaciones",
+                    "Esta instalacion ya esta en la ultima version publicada.",
+                )
+            return
+
+        if not isinstance(release, ReleaseInfo):
+            return
+
+        download_url = self._preferred_release_url(release)
+        message = QMessageBox(self)
+        message.setIcon(QMessageBox.Icon.Information)
+        message.setWindowTitle("Actualizacion disponible")
+        message.setText(f"Hay una version nueva disponible: {release.version}")
+        message.setInformativeText(
+            "Podes abrir la descarga recomendada para este sistema o ver la release completa."
+        )
+        if release.notes.strip():
+            message.setDetailedText(release.notes.strip())
+
+        open_button = message.addButton("Abrir descarga", QMessageBox.ButtonRole.AcceptRole)
+        release_button = message.addButton("Ver release", QMessageBox.ButtonRole.ActionRole)
+        later_button = message.addButton("Mas tarde", QMessageBox.ButtonRole.RejectRole)
+        message.setDefaultButton(open_button)
+        message.exec()
+
+        clicked = message.clickedButton()
+        if clicked == open_button:
+            QDesktopServices.openUrl(QUrl(download_url))
+        elif clicked == release_button:
+            QDesktopServices.openUrl(QUrl(release.html_url))
+        elif clicked == later_button:
+            return
+
+    def _handle_update_check_failed(self, error_message: str, interactive: bool) -> None:
+        self.update_check_in_progress = False
+        if interactive:
+            QMessageBox.warning(
+                self,
+                "Actualizaciones",
+                f"No se pudo comprobar si hay una version nueva.\n{error_message}",
+            )
+
+    def _preferred_release_url(self, release: ReleaseInfo) -> str:
+        preferred_asset = select_release_asset(
+            release,
+            system=platform.system(),
+            machine=platform.machine(),
+        )
+        if preferred_asset is not None:
+            return preferred_asset.download_url
+
+        return release.html_url
 
     def _selected_object_id(self, title: str) -> int | None:
         table = self.object_tables.get(title)
@@ -789,7 +984,25 @@ class MainWindow(QMainWindow):
         title = QLabel("Facturacion meses")
         title.setObjectName("sectionTitle")
         header.addWidget(title)
+        total_card = MetricCard("Facturacion anual", "$ 0")
+        total_card.setSizePolicy(
+            QSizePolicy.Policy.Minimum,
+            QSizePolicy.Policy.Fixed,
+        )
+        self.billing_total_card = total_card
+        header.addWidget(total_card)
+        toggle_button = QPushButton("Contraer")
+        toggle_button.clicked.connect(self._toggle_billing_panel)
+        self.billing_toggle_button = toggle_button
+        header.addWidget(toggle_button)
         header.addStretch()
+        layout.addLayout(header)
+
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(12)
+        self.billing_content_widget = content
 
         current_date = QDate.currentDate()
         month_combo = QComboBox()
@@ -811,11 +1024,8 @@ class MainWindow(QMainWindow):
         month_combo.currentIndexChanged.connect(self._refresh_billing_months)
         year_combo.currentIndexChanged.connect(self._billing_year_changed)
 
-        header.addWidget(QLabel("Mes final"))
-        header.addWidget(month_combo)
-        header.addWidget(QLabel("Ano"))
-        header.addWidget(year_combo)
-        layout.addLayout(header)
+        header.addWidget(self._build_billing_filter_card("Mes final", month_combo))
+        header.addWidget(self._build_billing_filter_card("Año", year_combo))
 
         month_grid = QGridLayout()
         month_grid.setSpacing(10)
@@ -824,10 +1034,33 @@ class MainWindow(QMainWindow):
             card = MetricCard("", "$ 0")
             self.billing_month_cards.append(card)
             month_grid.addWidget(card, index // 6, index % 6)
-        layout.addLayout(month_grid)
+        content_layout.addLayout(month_grid)
+        layout.addWidget(content)
 
         self._refresh_billing_months()
         return panel
+
+    def _build_billing_filter_card(self, label: str, control: QWidget) -> QFrame:
+        card = QFrame()
+        card.setObjectName("metric")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(8)
+
+        label_widget = QLabel(label)
+        label_widget.setObjectName("muted")
+        layout.addWidget(label_widget)
+        layout.addWidget(control)
+        return card
+
+    def _toggle_billing_panel(self) -> None:
+        self.billing_panel_expanded = not self.billing_panel_expanded
+        if self.billing_content_widget is not None:
+            self.billing_content_widget.setVisible(self.billing_panel_expanded)
+        if self.billing_toggle_button is not None:
+            self.billing_toggle_button.setText(
+                "Contraer" if self.billing_panel_expanded else "Expandir"
+            )
 
     def _build_table_panel(self) -> QWidget:
         panel = QFrame()
@@ -1451,6 +1684,35 @@ class MainWindow(QMainWindow):
         )
         return response == QMessageBox.StandardButton.Yes
 
+    def _clear_database_with_confirmation(self) -> None:
+        response = QMessageBox.question(
+            self,
+            "Vaciar base de datos",
+            (
+                "Se van a borrar todos los datos cargados en la aplicacion.\n"
+                "Esta accion no se puede deshacer.\n\n"
+                "Continuar?"
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if response != QMessageBox.StandardButton.Yes:
+            return
+
+        self._run_data_action(
+            "Base de datos vaciada.",
+            self._clear_database_and_refresh,
+        )
+
+    def _clear_database_and_refresh(self) -> None:
+        clear_database(self.database_path)
+        for title in ("Clientes", "Lugares", "Chofer", "T.Carga", "Vehiculos", "Peajes"):
+            self._refresh_object_table(title)
+        self._refresh_viaje_form_options()
+        self._refresh_table()
+        self._refresh_metrics()
+        self._clear_viaje_form()
+
     def _cliente_fields(
         self,
         values: dict[str, object] | None = None,
@@ -1819,11 +2081,17 @@ class MainWindow(QMainWindow):
             _month_key(start_date),
             _month_key(end_date),
         )
+        annual_total = 0.0
 
         for index, card in enumerate(self.billing_month_cards):
             month_date = start_date.addMonths(index)
+            month_total = totals.get(_month_key(month_date), 0)
+            annual_total += month_total
             card.set_label(_month_label(month_date))
-            card.set_value(_format_money(totals.get(_month_key(month_date), 0)))
+            card.set_value(_format_money(month_total))
+
+        if self.billing_total_card is not None:
+            self.billing_total_card.set_value(_format_money(annual_total))
 
     def _go_to_create_tab(self) -> None:
         self._go_to_tab_by_label("Cargar viaje")

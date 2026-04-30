@@ -48,14 +48,35 @@ git push origin v0.1.0
 
 GitHub Actions ejecutara el workflow de release, construyendo paquetes para Windows y macOS y adjuntandolos a la release.
 
+Artefactos esperados:
+
+- `GestionCamiones-Windows-x64.zip`
+- `GestionCamiones-macOS-AppleSilicon.dmg`
+- `GestionCamiones-macOS-Intel.dmg`
+
+## Firma y notarizacion de macOS
+
+Para que el instalador de macOS se pueda abrir sin advertencias fuertes del sistema, conviene firmar y notarizar la app desde GitHub Actions.
+
+Secrets requeridos para automatizarlo:
+
+- `APPLE_DEVELOPER_ID_APP_CERT`: certificado `Developer ID Application` exportado a `.p12` y codificado en base64.
+- `APPLE_DEVELOPER_ID_APP_CERT_PASSWORD`: password del `.p12`.
+- `APPLE_DEVELOPER_ID_APP_IDENTITY`: nombre exacto de la identidad de firma.
+- `APPLE_NOTARY_KEY_ID`: Key ID de App Store Connect.
+- `APPLE_NOTARY_ISSUER_ID`: Issuer ID de App Store Connect.
+- `APPLE_NOTARY_PRIVATE_KEY`: contenido del archivo `.p8` para `notarytool`.
+
+Si esos secrets no estan definidos, el workflow igual construye el `.dmg`, pero quedara sin firma/notarizacion.
+
 ## Actualizaciones de la app
 
-La app consultara GitHub Releases para detectar nuevas versiones.
+La app consulta GitHub Releases al iniciar y tambien desde `Opciones`.
 
-Antes de conectar esa funcion a la interfaz hay que definir:
+El selector de descarga ya espera estos nombres de paquetes para elegir automaticamente el instalador correcto segun sistema y arquitectura:
 
-- Usuario u organizacion de GitHub.
-- Nombre final del repositorio.
-- Nombres esperados de paquetes para Windows y macOS.
+- `GestionCamiones-Windows-x64.zip`
+- `GestionCamiones-macOS-AppleSilicon.dmg`
+- `GestionCamiones-macOS-Intel.dmg`
 
 Los datos actuales del repositorio son `ledesmamatiasarispe/camionesMariela`.

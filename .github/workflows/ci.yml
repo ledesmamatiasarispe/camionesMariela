@@ -8,8 +8,12 @@ on:
 
 jobs:
   python:
-    name: Python checks
-    runs-on: windows-latest
+    name: Python checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
 
     steps:
       - name: Checkout
@@ -31,3 +35,6 @@ jobs:
 
       - name: Compile
         run: python -m compileall src
+
+      - name: Test
+        run: python -m unittest discover -s tests
