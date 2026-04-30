@@ -164,27 +164,6 @@ button:hover {
   padding: var(--space-5);
 }
 
-.tabs {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-
-.tab {
-  min-height: 36px;
-  border-bottom-right-radius: 0;
-  border-bottom-left-radius: 0;
-  padding: 0 var(--space-4);
-}
-
-.tab.active {
-  border-color: var(--color-primary);
-  background: var(--color-surface);
-  color: var(--color-primary);
-  font-weight: 700;
-}
-
 .travel-form {
   display: grid;
   grid-template-columns: repeat(4, minmax(180px, 1fr));

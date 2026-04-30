@@ -202,6 +202,7 @@ class MainWindow(QMainWindow):
         content_layout.setSpacing(20)
 
         self.tabs = QTabWidget()
+        self.tabs.tabBar().hide()
         self.tabs.setUsesScrollButtons(True)
         self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
         self.tabs.addTab(self._build_viaje_form_tab(), TAB_LABELS[0])
@@ -941,21 +942,6 @@ QTabWidget::pane {
 QScrollArea {
     border: none;
     background: transparent;
-}
-
-QTabBar::tab {
-    min-height: 34px;
-    border: 1px solid #d9e0e5;
-    border-bottom: none;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    background: #eef3f5;
-    padding: 0 14px;
-}
-
-QTabBar::tab:selected {
-    background: #ffffff;
-    color: #1f6f8b;
 }
 
 QFrame#sidebar {

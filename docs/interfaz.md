@@ -20,11 +20,12 @@ PySide6 permite crear:
 - Dialogos de confirmacion.
 - Pantallas compatibles con Windows y macOS.
 
-## Navegacion por pestanas
+## Navegacion lateral
 
-La interfaz principal se organiza por pestanas.
+La interfaz principal se organiza en secciones operativas. La navegacion visible
+se muestra solo en la barra lateral.
 
-Pestanas iniciales:
+Secciones iniciales:
 
 - Cargar viaje.
 - Historial viajes.
@@ -37,7 +38,10 @@ Pestanas iniciales:
 - Estadisticas.
 - Opciones.
 
-La primera pestana es `Cargar viaje`. Debe pedir los datos del viaje en el mismo
+La seccion interna puede implementarse con pestanas ocultas de PySide6, pero no
+debe mostrarse una segunda fila de botones arriba del contenido.
+
+La primera seccion es `Cargar viaje`. Debe pedir los datos del viaje en el mismo
 orden operativo definido por la planilla:
 
 - Fecha.
@@ -59,7 +63,7 @@ orden operativo definido por la planilla:
 
 ## Historial viajes
 
-La segunda pestana debe funcionar como historial operativo:
+La seccion `Historial viajes` debe funcionar como historial operativo:
 
 - Busqueda por cliente, chofer, vehiculo, lugar o peaje.
 - Tabla de viajes.
@@ -68,7 +72,7 @@ La segunda pestana debe funcionar como historial operativo:
 
 ## Estadisticas
 
-La pestana de estadisticas debe mostrar:
+La seccion `Estadisticas` debe mostrar:
 
 - Resumen de viajes.
 - Indicadores principales.

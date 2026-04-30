@@ -3,9 +3,10 @@
 ## Navegacion
 
 - App shell con barra lateral.
-- Pestanas principales: Cargar viaje, Historial viajes, Clientes, Lugares,
+- Navegacion visible solo en la barra lateral.
+- Secciones principales: Cargar viaje, Historial viajes, Clientes, Lugares,
   Chofer, T.Carga, Vehiculos, Peajes, Estadisticas y Opciones.
-- Items laterales equivalentes a las pestanas principales.
+- Items laterales equivalentes a las secciones principales.
 
 ## Datos
 
