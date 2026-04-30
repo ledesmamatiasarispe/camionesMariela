@@ -84,8 +84,12 @@ orden operativo definido por la planilla:
 
 La seccion `Historial viajes` debe funcionar como historial operativo:
 
+- Bloque superior `Facturacion meses`.
+- Selector de mes y ano final para definir un rango de 12 meses.
+- Recuadros mensuales con la facturacion de cada mes del rango.
 - Busqueda por cliente, chofer, vehiculo, lugar o peaje.
 - Tabla de viajes.
+- Columna final `Costo total`, calculada como tarifa, demora, vacio y peajes.
 - Acceso rapido a alta de viaje.
 - Acceso a detalle de viaje.
 

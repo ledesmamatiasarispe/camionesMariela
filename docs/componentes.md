@@ -13,10 +13,12 @@
 ## Datos
 
 - Tabla de viajes.
+- Bloque de facturacion de ultimos 12 meses sobre el historial.
 - Tablas maestras para clientes, lugares, choferes, tipos de carga, vehiculos y peajes.
 - Filtros por fecha, estado, cliente, chofer, vehiculo y lugar.
 - Busqueda rapida.
 - Tarjetas de resumen operativo.
+- Recuadros mensuales de facturacion con rango configurable por mes y ano final.
 - Botonera propia Crear, Editar y Eliminar en secciones de mantenimiento.
 - Sin botonera Crear, Editar y Eliminar en Cargar viaje, Estadisticas y Opciones.
 - `Nuevo viaje` limpia el formulario de carga con confirmacion previa.

@@ -103,6 +103,21 @@ TAB_HEADERS = {
     ),
 }
 
+MONTH_NAMES = (
+    "Enero",
+    "Febrero",
+    "Marzo",
+    "Abril",
+    "Mayo",
+    "Junio",
+    "Julio",
+    "Agosto",
+    "Septiembre",
+    "Octubre",
+    "Noviembre",
+    "Diciembre",
+)
+
 
 class MainWindow(QMainWindow):
     def __init__(self, viaje_repository: ViajeRepository, database_path: Path) -> None:
@@ -126,6 +141,9 @@ class MainWindow(QMainWindow):
         self.page_subtitle_label: QLabel | None = None
         self.new_button: QPushButton | None = None
         self.save_button: QPushButton | None = None
+        self.billing_month_combo: QComboBox | None = None
+        self.billing_year_combo: QComboBox | None = None
+        self.billing_month_cards: list[MetricCard] = []
         self.form_widgets: dict[str, QWidget] = {}
 
         self.setWindowTitle("Gestion de viajes")
@@ -430,6 +448,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
+        layout.addWidget(self._build_monthly_billing_panel())
         layout.addWidget(self._build_table_panel(), stretch=1)
         return tab
 
@@ -759,6 +778,54 @@ class MainWindow(QMainWindow):
 
         return grid
 
+    def _build_monthly_billing_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(16, 14, 16, 16)
+        layout.setSpacing(12)
+
+        header = QHBoxLayout()
+        title = QLabel("Facturacion meses")
+        title.setObjectName("sectionTitle")
+        header.addWidget(title)
+        header.addStretch()
+
+        current_date = QDate.currentDate()
+        month_combo = self._build_combo(
+            [(name, index + 1) for index, name in enumerate(MONTH_NAMES)]
+        )
+        month_combo.setCurrentIndex(current_date.month() - 1)
+        month_combo.currentIndexChanged.connect(self._refresh_billing_months)
+        self.billing_month_combo = month_combo
+
+        years = set(self.viaje_repository.billing_years())
+        years.update(range(current_date.year() - 1, current_date.year() + 2))
+        year_combo = self._build_combo([(str(year), year) for year in sorted(years)])
+        year_index = year_combo.findData(current_date.year())
+        if year_index >= 0:
+            year_combo.setCurrentIndex(year_index)
+        year_combo.currentIndexChanged.connect(self._refresh_billing_months)
+        self.billing_year_combo = year_combo
+
+        header.addWidget(QLabel("Mes final"))
+        header.addWidget(month_combo)
+        header.addWidget(QLabel("Ano"))
+        header.addWidget(year_combo)
+        layout.addLayout(header)
+
+        month_grid = QGridLayout()
+        month_grid.setSpacing(10)
+        self.billing_month_cards = []
+        for index in range(12):
+            card = MetricCard("", "$ 0")
+            self.billing_month_cards.append(card)
+            month_grid.addWidget(card, index // 6, index % 6)
+        layout.addLayout(month_grid)
+
+        self._refresh_billing_months()
+        return panel
+
     def _build_table_panel(self) -> QWidget:
         panel = QFrame()
         panel.setObjectName("panel")
@@ -784,7 +851,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self.table = QTableWidget(0, 19)
+        self.table = QTableWidget(0, 20)
         self.table.setHorizontalHeaderLabels(
             [
                 "ID",
@@ -805,10 +872,12 @@ class MainWindow(QMainWindow):
                 "Vacio $",
                 "F.Desc vacio",
                 "Peajes $",
+                "Costo total $",
                 "Estado",
             ]
         )
         self.table.setColumnHidden(0, True)
+        self.table.setColumnHidden(19, True)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
@@ -836,6 +905,7 @@ class MainWindow(QMainWindow):
                 self.table.setItem(row_index, column_index, item)
 
         self.table.resizeColumnsToContents()
+        self._refresh_billing_months()
 
     def _viaje_to_row(self, viaje: ViajeResumen) -> list[str]:
         return [
@@ -857,6 +927,7 @@ class MainWindow(QMainWindow):
             _format_money(viaje.vacio),
             viaje.fecha_descarga_vacio,
             _format_money(viaje.peajes),
+            _format_money(viaje.costo_total),
             viaje.estado,
         ]
 
@@ -1569,7 +1640,7 @@ class MainWindow(QMainWindow):
                 "value": self._cell(row, 16),
                 "required": False,
             },
-            {"key": "estado", "label": "Estado", "value": self._cell(row, 18)},
+            {"key": "estado", "label": "Estado", "value": self._cell(row, 19)},
         ]
 
     def _find_by_id(self, items: list[object], item_id: int) -> object | None:
@@ -1700,6 +1771,29 @@ class MainWindow(QMainWindow):
                 else _format_money(value)
             )
             card.set_value(display_value)
+
+    def _refresh_billing_months(self) -> None:
+        if (
+            self.billing_month_combo is None
+            or self.billing_year_combo is None
+            or not self.billing_month_cards
+        ):
+            return
+
+        month = int(self.billing_month_combo.currentData() or QDate.currentDate().month())
+        year = int(self.billing_year_combo.currentData() or QDate.currentDate().year())
+        end_date = QDate(year, month, 1)
+        start_date = end_date.addMonths(-11)
+
+        totals = self.viaje_repository.monthly_billing(
+            _month_key(start_date),
+            _month_key(end_date),
+        )
+
+        for index, card in enumerate(self.billing_month_cards):
+            month_date = start_date.addMonths(index)
+            card.set_label(_month_label(month_date))
+            card.set_value(_format_money(totals.get(_month_key(month_date), 0)))
 
     def _go_to_create_tab(self) -> None:
         self._go_to_tab_by_label("Cargar viaje")
@@ -2014,7 +2108,11 @@ class MetricCard(QFrame):
 
         layout.addWidget(label_widget)
         layout.addWidget(value_widget)
+        self.label_widget = label_widget
         self.value_widget = value_widget
+
+    def set_label(self, value: str) -> None:
+        self.label_widget.setText(value)
 
     def set_value(self, value: str) -> None:
         self.value_widget.setText(value)
@@ -2022,6 +2120,14 @@ class MetricCard(QFrame):
 
 def _format_money(value: float) -> str:
     return f"$ {value:,.0f}".replace(",", ".")
+
+
+def _month_key(date: QDate) -> str:
+    return date.toString("yyyy-MM")
+
+
+def _month_label(date: QDate) -> str:
+    return f"{MONTH_NAMES[date.month() - 1]} {date.year()}"
 
 
 APP_STYLES = """

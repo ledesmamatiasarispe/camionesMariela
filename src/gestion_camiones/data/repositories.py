@@ -268,6 +268,53 @@ class ViajeRepository:
             "Peajes total": peajes_total,
         }
 
+    def monthly_billing(self, start_month: str, end_month: str) -> dict[str, float]:
+        query = """
+            SELECT
+                periodo,
+                SUM(tarifa + demora + vacio + peajes_total) AS total
+            FROM (
+                SELECT
+                    substr(viajes.fecha, 1, 7) AS periodo,
+                    COALESCE(viajes.tarifa, 0) AS tarifa,
+                    COALESCE(viajes.demora, 0) AS demora,
+                    COALESCE(viajes.vacio, 0) AS vacio,
+                    COALESCE(
+                        (
+                            SELECT SUM(peajes.costo)
+                            FROM viaje_peajes
+                            JOIN peajes ON peajes.id = viaje_peajes.peaje_id
+                            WHERE viaje_peajes.viaje_id = viajes.id
+                        ),
+                        viajes.peajes,
+                        0
+                    ) AS peajes_total
+                FROM viajes
+                WHERE substr(viajes.fecha, 1, 7) BETWEEN ? AND ?
+            )
+            GROUP BY periodo
+        """
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, (start_month, end_month)).fetchall()
+        return {str(row["periodo"]): float(row["total"]) for row in rows}
+
+    def billing_years(self) -> list[int]:
+        query = """
+            SELECT DISTINCT substr(fecha, 1, 4) AS year
+            FROM viajes
+            WHERE length(fecha) >= 4
+            ORDER BY year
+        """
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query).fetchall()
+
+        years = []
+        for row in rows:
+            value = str(row["year"])
+            if value.isdigit():
+                years.append(int(value))
+        return years
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row

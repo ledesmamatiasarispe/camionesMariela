@@ -109,6 +109,10 @@ class ViajeResumen:
     peajes: float
     estado: str
 
+    @property
+    def costo_total(self) -> float:
+        return self.tarifa + self.demora + self.vacio + self.peajes
+
 
 @dataclass(frozen=True)
 class ViajeCreate:

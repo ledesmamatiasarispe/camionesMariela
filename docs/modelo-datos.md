@@ -197,6 +197,13 @@ No representan cantidades, duraciones ni estados operativos. Deben tratarse como
 - `fecha_descarga_demora`
 - `fecha_descarga_vacio`
 
+El `costo_total` visible en historial se calcula por viaje como:
+
+- `tarifa + demora + vacio + peajes`
+
+La facturacion mensual usa el mes de `fecha` del viaje y suma el `costo_total`
+de todos los viajes del mes.
+
 ## Relaciones
 
 - Un cliente puede tener muchos viajes.

@@ -31,6 +31,7 @@ Sera una app cliente sin servidor. El funcionamiento normal no debe depender de 
 - Gestionar camiones y semis como vehiculos con identificador, patente y observaciones.
 - Registrar tarifa, demora y vacio como importes cobrados al cliente por cada viaje.
 - Registrar una fecha de descarga propia para tarifa, demora y vacio.
+- Consultar costo total por viaje y facturacion mensual de los ultimos 12 meses.
 - Gestionar peajes con nombre, direccion y costo, y asociarlos a los viajes.
 - Cambiar estado operativo.
 - Ver viajes pendientes, en proceso y finalizados.
