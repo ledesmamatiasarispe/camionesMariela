@@ -26,7 +26,7 @@ La primera pantalla debe funcionar como tablero operativo:
 
 - Resumen de viajes.
 - Indicadores principales.
-- Busqueda por cliente, chofer, vehiculo o lugar.
+- Busqueda por cliente, chofer, vehiculo, lugar o peaje.
 - Tabla de viajes.
 - Acceso rapido a alta de viaje.
 - Acceso a detalle de viaje.
@@ -39,7 +39,7 @@ La primera pantalla debe funcionar como tablero operativo:
 - Detalle de viaje.
 - Cambio de estado.
 - Carga de documentacion.
-- Maestros: clientes, cargas, lugares, roles de lugares, choferes y vehiculos.
+- Maestros: clientes, cargas, lugares, roles de lugares, choferes, vehiculos y peajes.
 - Reportes/exportaciones.
 - Configuracion.
 

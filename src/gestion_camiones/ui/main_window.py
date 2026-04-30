@@ -130,7 +130,7 @@ class MainWindow(QMainWindow):
         title_block.addWidget(subtitle)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Buscar cliente, chofer, vehiculo o lugar")
+        self.search_input.setPlaceholderText("Buscar cliente, chofer, vehiculo, lugar o peaje")
         self.search_input.setFixedWidth(300)
         self.search_input.textChanged.connect(self._refresh_table)
 
@@ -150,7 +150,11 @@ class MainWindow(QMainWindow):
         metrics = self.viaje_repository.dashboard_metrics()
 
         for column, (label, value) in enumerate(metrics.items()):
-            display_value = str(value) if label == "Viajes cargados" else _format_money(value)
+            display_value = (
+                str(value)
+                if label == "Viajes cargados"
+                else _format_money(value)
+            )
             card = MetricCard(label, display_value)
             self.metric_cards[label] = card
             grid.addWidget(card, 0, column)
@@ -193,7 +197,7 @@ class MainWindow(QMainWindow):
                 "Demora $",
                 "F.Desc demora",
                 "Vacio $",
-                "Peajes",
+                "Peajes $",
                 "Estado",
             ]
         )

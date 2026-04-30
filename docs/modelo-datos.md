@@ -116,6 +116,28 @@ Campos principales:
 - `observaciones`
 - `activo`
 
+### peajes
+
+Guarda los peajes que pueden asociarse a los viajes.
+
+Campos principales:
+
+- `id`
+- `nombre`
+- `direccion`
+- `costo`
+- `activo`
+
+### viaje_peajes
+
+Relaciona viajes con peajes. Un viaje puede tener cero, uno o varios peajes.
+
+Campos principales:
+
+- `id`
+- `viaje_id`
+- `peaje_id`
+
 ## Tabla viajes
 
 Campos principales:
@@ -133,7 +155,7 @@ Campos principales:
 - `demora`: importe cobrado al cliente por demora.
 - `fecha_descarga_demora`: fecha de descarga asociada a la demora.
 - `vacio`: importe cobrado al cliente por vacio.
-- `peajes`
+- `peajes`: importe historico de compatibilidad; el total actual sale de `viaje_peajes`.
 - `observaciones`
 - `estado`
 
@@ -157,6 +179,8 @@ No representan cantidades, duraciones ni estados operativos. Deben tratarse como
 - Un chofer puede tener muchos viajes.
 - Un vehiculo de tipo `CAMION` puede tener muchos viajes como camion.
 - Un vehiculo de tipo `SEMI` puede tener muchos viajes como semi.
+- Un peaje puede estar asociado a muchos viajes.
+- Un viaje puede tener muchos peajes.
 - Un viaje pertenece a un cliente, una carga, un origen, un destino, un chofer y al menos un camion.
 
 ## Objeto chofer
@@ -225,6 +249,19 @@ Campos iniciales:
 - `observaciones`: notas internas.
 
 En `viajes` se guardan `camion_id` y `semi_id`. Ambos apuntan a `vehiculos`, pero `camion_id` debe corresponder a un vehiculo de tipo `CAMION` y `semi_id` a uno de tipo `SEMI`.
+
+## Objeto peaje
+
+El peaje es una entidad propia.
+
+Campos iniciales:
+
+- `id`: identificador interno.
+- `nombre`: nombre del peaje.
+- `direccion`: direccion o ubicacion del peaje.
+- `costo`: costo del peaje.
+
+La relacion con viajes se guarda en `viaje_peajes`, para permitir que un viaje tenga varios peajes sin repetir datos.
 
 ## Base local
 

@@ -20,6 +20,7 @@
 - Datos de carga: codigo largo identificatorio del contenedor.
 - Datos de lugar: nombre, direccion, observaciones y roles con vigencia.
 - Datos de chofer: DNI, nombre, apellido, telefono y vencimiento de registro.
+- Datos de peaje: nombre, direccion y costo.
 - Cambio de estado.
 - Carga de documentacion.
 - Registro de observaciones.

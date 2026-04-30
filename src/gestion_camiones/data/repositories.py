@@ -10,6 +10,7 @@ from gestion_camiones.data.models import (
     Cliente,
     Lugar,
     LugarRol,
+    Peaje,
     Vehiculo,
     ViajeResumen,
 )
@@ -37,7 +38,15 @@ class ViajeRepository:
                 viajes.demora,
                 COALESCE(viajes.fecha_descarga_demora, '') AS fecha_descarga_demora,
                 viajes.vacio,
-                viajes.peajes,
+                COALESCE(
+                    (
+                        SELECT SUM(peajes.costo)
+                        FROM viaje_peajes
+                        JOIN peajes ON peajes.id = viaje_peajes.peaje_id
+                        WHERE viaje_peajes.viaje_id = viajes.id
+                    ),
+                    viajes.peajes
+                ) AS peajes,
                 viajes.estado
             FROM viajes
             JOIN clientes ON clientes.id = viajes.cliente_id
@@ -71,9 +80,21 @@ class ViajeRepository:
                    OR camion.patente LIKE ?
                    OR semi.nombre_identificatorio LIKE ?
                    OR semi.patente LIKE ?
+                   OR EXISTS (
+                       SELECT 1
+                       FROM viaje_peajes
+                       JOIN peajes ON peajes.id = viaje_peajes.peaje_id
+                       WHERE viaje_peajes.viaje_id = viajes.id
+                         AND (
+                             peajes.nombre LIKE ?
+                             OR peajes.direccion LIKE ?
+                         )
+                   )
             """
             pattern = f"%{search.strip()}%"
             params = (
+                pattern,
+                pattern,
                 pattern,
                 pattern,
                 pattern,
@@ -113,12 +134,20 @@ class ViajeRepository:
             vacio_total = connection.execute(
                 "SELECT COALESCE(SUM(vacio), 0) FROM viajes"
             ).fetchone()[0]
+            peajes_total = connection.execute(
+                """
+                SELECT COALESCE(SUM(peajes.costo), 0)
+                FROM viaje_peajes
+                JOIN peajes ON peajes.id = viaje_peajes.peaje_id
+                """
+            ).fetchone()[0]
 
         return {
             "Viajes cargados": total,
             "Tarifa total": tarifa_total,
             "Demora total": demora_total,
             "Vacio total": vacio_total,
+            "Peajes total": peajes_total,
         }
 
     def _connect(self) -> sqlite3.Connection:
@@ -398,6 +427,49 @@ class VehiculoRepository:
                 nombre_identificatorio=row["nombre_identificatorio"],
                 patente=row["patente"],
                 observaciones=row["observaciones"],
+                activo=bool(row["activo"]),
+            )
+            for row in rows
+        ]
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+
+class PeajeRepository:
+    def __init__(self, database_path: Path) -> None:
+        self.database_path = database_path
+
+    def list_all(self, include_inactive: bool = False) -> list[Peaje]:
+        query = """
+            SELECT
+                id,
+                nombre,
+                direccion,
+                costo,
+                activo
+            FROM peajes
+        """
+        params: tuple[int, ...] = ()
+
+        if not include_inactive:
+            query += " WHERE activo = ?"
+            params = (1,)
+
+        query += " ORDER BY nombre"
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, params).fetchall()
+
+        return [
+            Peaje(
+                id=row["id"],
+                nombre=row["nombre"],
+                direccion=row["direccion"],
+                costo=row["costo"],
                 activo=bool(row["activo"]),
             )
             for row in rows

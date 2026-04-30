@@ -71,6 +71,15 @@ class Vehiculo:
 
 
 @dataclass(frozen=True)
+class Peaje:
+    id: int
+    nombre: str
+    direccion: str
+    costo: float
+    activo: bool
+
+
+@dataclass(frozen=True)
 class ViajeResumen:
     id: int
     cliente: str

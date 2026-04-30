@@ -68,6 +68,15 @@ CREATE TABLE IF NOT EXISTS vehiculos (
     creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS peajes (
+    id INTEGER PRIMARY KEY,
+    nombre TEXT NOT NULL UNIQUE,
+    direccion TEXT NOT NULL DEFAULT '',
+    costo NUMERIC NOT NULL DEFAULT 0,
+    activo INTEGER NOT NULL DEFAULT 1,
+    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS viajes (
     id INTEGER PRIMARY KEY,
     cliente_id INTEGER NOT NULL,
@@ -97,6 +106,16 @@ CREATE TABLE IF NOT EXISTS viajes (
     FOREIGN KEY (semi_id) REFERENCES vehiculos(id)
 );
 
+CREATE TABLE IF NOT EXISTS viaje_peajes (
+    id INTEGER PRIMARY KEY,
+    viaje_id INTEGER NOT NULL,
+    peaje_id INTEGER NOT NULL,
+    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (viaje_id, peaje_id),
+    FOREIGN KEY (viaje_id) REFERENCES viajes(id),
+    FOREIGN KEY (peaje_id) REFERENCES peajes(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_viajes_cliente_id ON viajes(cliente_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_chofer_id ON viajes(chofer_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_camion_id ON viajes(camion_id);
@@ -117,6 +136,9 @@ CREATE INDEX IF NOT EXISTS idx_choferes_apellido_nombre ON choferes(apellido, no
 CREATE INDEX IF NOT EXISTS idx_vehiculos_tipo ON vehiculos(tipo);
 CREATE INDEX IF NOT EXISTS idx_vehiculos_nombre_identificatorio
     ON vehiculos(nombre_identificatorio);
+CREATE INDEX IF NOT EXISTS idx_peajes_nombre ON peajes(nombre);
+CREATE INDEX IF NOT EXISTS idx_viaje_peajes_viaje_id ON viaje_peajes(viaje_id);
+CREATE INDEX IF NOT EXISTS idx_viaje_peajes_peaje_id ON viaje_peajes(peaje_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_cliente_id ON viajes(cliente_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_chofer_id ON viajes(chofer_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_camion_id ON viajes(camion_id);
@@ -209,6 +231,11 @@ INSERT OR IGNORE INTO vehiculos (
     (1002, 'SEMI', 'Semi playo', 'AC222DD', ''),
     (1003, 'SEMI', 'Semi cerealero', 'AF333GG', '');
 
+INSERT OR IGNORE INTO peajes (id, nombre, direccion, costo) VALUES
+    (1, 'Peaje Autopista Norte', 'Direccion pendiente', 15000),
+    (2, 'Peaje Ruta Sur', 'Direccion pendiente', 22000),
+    (3, 'Peaje Acceso Puerto', 'Direccion pendiente', 9000);
+
 INSERT OR IGNORE INTO viajes (
     id,
     cliente_id,
@@ -240,6 +267,21 @@ INSERT OR IGNORE INTO viajes (
         3, 3, 3, 4, 1, 3, 3, 1003, 'Parcial', 95000, '2026-05-01',
         0, NULL, 0, 9000, '', 'Finalizado'
     );
+
+INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id)
+SELECT 1, 1, 1
+WHERE EXISTS (SELECT 1 FROM viajes WHERE id = 1)
+  AND NOT EXISTS (SELECT 1 FROM viaje_peajes WHERE viaje_id = 1);
+
+INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id)
+SELECT 2, 2, 2
+WHERE EXISTS (SELECT 1 FROM viajes WHERE id = 2)
+  AND NOT EXISTS (SELECT 1 FROM viaje_peajes WHERE viaje_id = 2);
+
+INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id)
+SELECT 3, 3, 3
+WHERE EXISTS (SELECT 1 FROM viajes WHERE id = 3)
+  AND NOT EXISTS (SELECT 1 FROM viaje_peajes WHERE viaje_id = 3);
 """
 
 
@@ -255,6 +297,7 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
         _migrate_vehiculos(connection)
         _migrate_viajes_to_vehiculos(connection)
         _migrate_viaje_fechas_descarga(connection)
+        _migrate_peajes_from_viajes(connection)
         _migrate_lugar_roles_from_viajes(connection)
         connection.executescript(POST_MIGRATION_SQL)
         if seed:
@@ -441,6 +484,7 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
     )
 
     connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute("DROP TABLE IF EXISTS viaje_peajes")
     connection.execute("ALTER TABLE viajes RENAME TO viajes_legacy")
     connection.execute(
         """
@@ -521,7 +565,24 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
         """
     )
     connection.execute("DROP TABLE viajes_legacy")
+    _create_viaje_peajes_table(connection)
     connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _create_viaje_peajes_table(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS viaje_peajes (
+            id INTEGER PRIMARY KEY,
+            viaje_id INTEGER NOT NULL,
+            peaje_id INTEGER NOT NULL,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (viaje_id, peaje_id),
+            FOREIGN KEY (viaje_id) REFERENCES viajes(id),
+            FOREIGN KEY (peaje_id) REFERENCES peajes(id)
+        )
+        """
+    )
 
 
 def _migrate_viaje_fechas_descarga(connection: sqlite3.Connection) -> None:
@@ -554,6 +615,49 @@ def _migrate_viaje_fechas_descarga(connection: sqlite3.Connection) -> None:
             )
             """
         )
+
+
+def _migrate_peajes_from_viajes(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "viajes"):
+        return
+
+    columns = _table_columns(connection, "viajes")
+    if "peajes" not in columns:
+        return
+
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO peajes (id, nombre, direccion, costo)
+        SELECT
+            1000000 + viajes.id,
+            'Peaje importado viaje ' || viajes.id,
+            '',
+            viajes.peajes
+        FROM viajes
+        WHERE viajes.peajes > 0
+          AND NOT EXISTS (
+              SELECT 1
+              FROM viaje_peajes
+              WHERE viaje_peajes.viaje_id = viajes.id
+          )
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id)
+        SELECT
+            1000000 + viajes.id,
+            viajes.id,
+            1000000 + viajes.id
+        FROM viajes
+        WHERE viajes.peajes > 0
+          AND NOT EXISTS (
+              SELECT 1
+              FROM viaje_peajes
+              WHERE viaje_peajes.viaje_id = viajes.id
+          )
+        """
+    )
 
 
 def _migrate_lugar_roles_from_viajes(connection: sqlite3.Connection) -> None:
