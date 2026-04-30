@@ -14,6 +14,13 @@ class Cliente:
 
 
 @dataclass(frozen=True)
+class Carga:
+    id: int
+    codigo_contenedor: str
+    activo: bool
+
+
+@dataclass(frozen=True)
 class Chofer:
     id: int
     dni: str

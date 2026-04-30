@@ -52,12 +52,12 @@ Campos principales:
 
 ### cargas
 
-Guarda tipos o descripciones de carga.
+Guarda el codigo largo que identifica a cada contenedor.
 
 Campos principales:
 
 - `id`
-- `descripcion`
+- `codigo_contenedor`
 - `activo`
 
 ### lugares
@@ -156,6 +156,17 @@ Campos iniciales:
 - `numero_contacto`: telefono o numero de contacto principal.
 
 En `viajes` se guarda `cliente_id`, para mantener la relacion sin duplicar datos fiscales o de contacto en cada viaje.
+
+## Objeto carga
+
+La carga representa, por ahora, el contenedor asociado al viaje.
+
+Campos iniciales:
+
+- `id`: identificador interno.
+- `codigo_contenedor`: codigo largo que identifica al contenedor.
+
+En `viajes` se guarda `carga_id`, para mantener la relacion con el contenedor sin repetir el codigo en cada viaje.
 
 ## Objeto vehiculo
 

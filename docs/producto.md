@@ -19,6 +19,7 @@ Sera una app cliente sin servidor. El funcionamiento normal no debe depender de 
 
 - Registrar un viaje nuevo.
 - Relacionar cliente, carga, lugar de carga, lugar de descarga, chofer, camion y semi.
+- Gestionar cargas como codigos largos de contenedor.
 - Gestionar clientes como objetos con domicilio fiscal, email y numero de contacto.
 - Gestionar choferes como objetos con DNI, nombre, apellido, telefono y vencimiento de registro.
 - Gestionar camiones y semis como vehiculos con identificador, patente y observaciones.

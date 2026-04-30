@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS clientes (
 
 CREATE TABLE IF NOT EXISTS cargas (
     id INTEGER PRIMARY KEY,
-    descripcion TEXT NOT NULL UNIQUE,
+    codigo_contenedor TEXT NOT NULL UNIQUE,
+    descripcion TEXT,
     activo INTEGER NOT NULL DEFAULT 1,
     creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -94,6 +95,8 @@ CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_programada
 POST_MIGRATION_SQL = """
 CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
 CREATE INDEX IF NOT EXISTS idx_clientes_email ON clientes(email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cargas_codigo_contenedor
+    ON cargas(codigo_contenedor);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_choferes_dni ON choferes(dni);
 CREATE INDEX IF NOT EXISTS idx_choferes_apellido_nombre ON choferes(apellido, nombre);
 CREATE INDEX IF NOT EXISTS idx_vehiculos_tipo ON vehiculos(tipo);
@@ -138,10 +141,10 @@ INSERT OR IGNORE INTO clientes (
         ''
     );
 
-INSERT OR IGNORE INTO cargas (id, descripcion) VALUES
-    (1, 'Materia prima'),
-    (2, 'Producto terminado'),
-    (3, 'Insumos');
+INSERT OR IGNORE INTO cargas (id, codigo_contenedor, descripcion) VALUES
+    (1, 'CONT-00000000000000000001', 'Materia prima'),
+    (2, 'CONT-00000000000000000002', 'Producto terminado'),
+    (3, 'CONT-00000000000000000003', 'Insumos');
 
 INSERT OR IGNORE INTO lugares (id, nombre) VALUES
     (1, 'Planta principal'),
@@ -215,6 +218,7 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
     with closing(sqlite3.connect(database_path)) as connection:
         connection.executescript(SCHEMA_SQL)
         _migrate_clientes(connection)
+        _migrate_cargas(connection)
         _migrate_choferes(connection)
         _migrate_vehiculos(connection)
         _migrate_viajes_to_vehiculos(connection)
@@ -237,6 +241,25 @@ def _migrate_clientes(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE clientes ADD COLUMN numero_contacto TEXT NOT NULL DEFAULT ''"
         )
+
+
+def _migrate_cargas(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "cargas")
+
+    if "codigo_contenedor" not in columns:
+        connection.execute("ALTER TABLE cargas ADD COLUMN codigo_contenedor TEXT")
+
+    description_expression = "descripcion" if "descripcion" in columns else "''"
+    connection.execute(
+        f"""
+        UPDATE cargas
+        SET codigo_contenedor = COALESCE(
+            NULLIF(codigo_contenedor, ''),
+            NULLIF({description_expression}, ''),
+            'CONT-PENDIENTE-' || id
+        )
+        """
+    )
 
 
 def _migrate_choferes(connection: sqlite3.Connection) -> None:
