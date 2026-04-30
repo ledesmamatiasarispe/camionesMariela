@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS viajes (
     chofer_id INTEGER NOT NULL,
     camion_id INTEGER NOT NULL,
     semi_id INTEGER,
-    tipo_carga TEXT,
+    tipo_carga TEXT NOT NULL DEFAULT 'GENERAL'
+        CHECK (tipo_carga IN ('GENERAL', 'PELIGROSA')),
     tarifa NUMERIC NOT NULL DEFAULT 0,
     fecha_descarga_tarifa TEXT,
     demora NUMERIC NOT NULL DEFAULT 0,
@@ -256,15 +257,15 @@ INSERT OR IGNORE INTO viajes (
     estado
 ) VALUES
     (
-        1, 1, 1, 2, 1, 1, 1, 1001, 'Completa', 120000, '2026-04-30',
+        1, 1, 1, 2, 1, 1, 1, 1001, 'GENERAL', 120000, '2026-04-30',
         0, NULL, 0, 15000, 'Control pendiente', 'Programado'
     ),
     (
-        2, 2, 2, 1, 3, 2, 2, 1002, 'Completa', 180000, '2026-04-30',
+        2, 2, 2, 1, 3, 2, 2, 1002, 'PELIGROSA', 180000, '2026-04-30',
         25000, NULL, 10000, 22000, 'Demora informada', 'En viaje'
     ),
     (
-        3, 3, 3, 4, 1, 3, 3, 1003, 'Parcial', 95000, '2026-05-01',
+        3, 3, 3, 4, 1, 3, 3, 1003, 'GENERAL', 95000, '2026-05-01',
         0, NULL, 0, 9000, '', 'Finalizado'
     );
 
@@ -297,6 +298,7 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
         _migrate_vehiculos(connection)
         _migrate_viajes_to_vehiculos(connection)
         _migrate_viaje_fechas_descarga(connection)
+        _migrate_tipo_carga(connection)
         _migrate_peajes_from_viajes(connection)
         _migrate_lugar_roles_from_viajes(connection)
         connection.executescript(POST_MIGRATION_SQL)
@@ -497,7 +499,8 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             chofer_id INTEGER NOT NULL,
             camion_id INTEGER NOT NULL,
             semi_id INTEGER,
-            tipo_carga TEXT,
+            tipo_carga TEXT NOT NULL DEFAULT 'GENERAL'
+                CHECK (tipo_carga IN ('GENERAL', 'PELIGROSA')),
             tarifa NUMERIC NOT NULL DEFAULT 0,
             fecha_descarga_tarifa TEXT,
             demora NUMERIC NOT NULL DEFAULT 0,
@@ -550,7 +553,11 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             chofer_id,
             camion_id,
             CASE WHEN semi_id IS NULL THEN NULL ELSE semi_id + 1000 END,
-            tipo_carga,
+            CASE
+                WHEN upper(trim(COALESCE(tipo_carga, ''))) IN ('PELIGROSA', 'CARGA PELIGROSA')
+                THEN 'PELIGROSA'
+                ELSE 'GENERAL'
+            END,
             tarifa,
             {fecha_descarga_tarifa},
             demora,
@@ -615,6 +622,28 @@ def _migrate_viaje_fechas_descarga(connection: sqlite3.Connection) -> None:
             )
             """
         )
+
+
+def _migrate_tipo_carga(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "viajes"):
+        return
+
+    columns = _table_columns(connection, "viajes")
+    if "tipo_carga" not in columns:
+        connection.execute(
+            "ALTER TABLE viajes ADD COLUMN tipo_carga TEXT NOT NULL DEFAULT 'GENERAL'"
+        )
+
+    connection.execute(
+        """
+        UPDATE viajes
+        SET tipo_carga = CASE
+            WHEN upper(trim(COALESCE(tipo_carga, ''))) IN ('PELIGROSA', 'CARGA PELIGROSA')
+            THEN 'PELIGROSA'
+            ELSE 'GENERAL'
+        END
+        """
+    )
 
 
 def _migrate_peajes_from_viajes(connection: sqlite3.Connection) -> None:

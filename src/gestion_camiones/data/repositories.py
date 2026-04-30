@@ -30,7 +30,10 @@ class ViajeRepository:
                 lugar_descarga.nombre AS lugar_descarga,
                 COALESCE(viajes.observaciones, '') AS observaciones,
                 trim(choferes.nombre || ' ' || choferes.apellido) AS chofer,
-                COALESCE(viajes.tipo_carga, '') AS tipo_carga,
+                CASE viajes.tipo_carga
+                    WHEN 'PELIGROSA' THEN 'Carga peligrosa'
+                    ELSE 'General'
+                END AS tipo_carga,
                 camion.nombre_identificatorio || ' - ' || camion.patente AS camion,
                 COALESCE(semi.nombre_identificatorio || ' - ' || semi.patente, '') AS semi,
                 viajes.tarifa,

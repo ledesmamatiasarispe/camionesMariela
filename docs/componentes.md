@@ -18,6 +18,7 @@
 - Alta/edicion de clientes, cargas, lugares, choferes y vehiculos.
 - Datos de cliente: nombre, domicilio fiscal, email y numero de contacto.
 - Datos de carga: codigo largo identificatorio del contenedor.
+- Tipo de carga: general o carga peligrosa.
 - Datos de lugar: nombre, direccion, observaciones y roles con vigencia.
 - Datos de chofer: DNI, nombre, apellido, telefono y vencimiento de registro.
 - Datos de peaje: nombre, direccion y costo.

@@ -30,7 +30,8 @@ Encabezados originales:
 
 Interpretacion actual:
 
-- `T.CARGA`: por ahora se interpreta como `tipo_carga`.
+- `T.CARGA`: se interpreta como `tipo_carga`.
+- Valores iniciales de `tipo_carga`: `GENERAL` o `PELIGROSA`.
 - El primer `F.DESC`, ubicado despues de `TARIFA`, corresponde a `fecha_descarga_tarifa`.
 - El segundo `F.DESC`, ubicado despues de `DEMORA`, corresponde a `fecha_descarga_demora`.
 
@@ -149,7 +150,7 @@ Campos principales:
 - `chofer_id`
 - `camion_id`
 - `semi_id`
-- `tipo_carga`
+- `tipo_carga`: `GENERAL` o `PELIGROSA`.
 - `tarifa`: importe cobrado al cliente por tarifa del viaje.
 - `fecha_descarga_tarifa`: fecha de descarga asociada a la tarifa.
 - `demora`: importe cobrado al cliente por demora.
