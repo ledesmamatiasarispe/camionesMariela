@@ -71,6 +71,7 @@ orden operativo definido por la planilla:
 - Demora.
 - Fecha de descarga asociada a demora.
 - Vacio.
+- Fecha de descarga asociada a vacio.
 - Peajes.
 
 ## Historial viajes

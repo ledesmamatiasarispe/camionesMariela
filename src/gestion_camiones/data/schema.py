@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS viajes (
     demora NUMERIC NOT NULL DEFAULT 0,
     fecha_descarga_demora TEXT,
     vacio NUMERIC NOT NULL DEFAULT 0,
+    fecha_descarga_vacio TEXT,
     peajes NUMERIC NOT NULL DEFAULT 0,
     observaciones TEXT,
     estado TEXT NOT NULL DEFAULT 'Programado',
@@ -159,6 +160,8 @@ CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_tarifa
     ON viajes(fecha_descarga_tarifa);
 CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_demora
     ON viajes(fecha_descarga_demora);
+CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_vacio
+    ON viajes(fecha_descarga_vacio);
 """
 
 
@@ -268,21 +271,22 @@ INSERT OR IGNORE INTO viajes (
     demora,
     fecha_descarga_demora,
     vacio,
+    fecha_descarga_vacio,
     peajes,
     observaciones,
     estado
 ) VALUES
     (
         1, '2026-04-30', 1, 1, 2, 1, 1, 1, 1001, 'GENERAL', 120000, '2026-04-30',
-        0, NULL, 0, 15000, 'Control pendiente', 'Programado'
+        0, NULL, 0, NULL, 15000, 'Control pendiente', 'Programado'
     ),
     (
         2, '2026-04-30', 2, 2, 1, 3, 2, 2, 1002, 'PELIGROSA', 180000, '2026-04-30',
-        25000, NULL, 10000, 22000, 'Demora informada', 'En viaje'
+        25000, NULL, 10000, '2026-04-30', 22000, 'Demora informada', 'En viaje'
     ),
     (
         3, '2026-05-01', 3, 3, 4, 1, 3, 3, 1003, 'GENERAL', 95000, '2026-05-01',
-        0, NULL, 0, 9000, '', 'Finalizado'
+        0, NULL, 0, NULL, 9000, '', 'Finalizado'
     );
 
 INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id)
@@ -503,6 +507,9 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
         if "fecha_descarga_real" in columns
         else "NULL"
     )
+    fecha_descarga_vacio = (
+        "fecha_descarga_vacio" if "fecha_descarga_vacio" in columns else "NULL"
+    )
     fecha = "fecha" if "fecha" in columns else "''"
 
     connection.execute("PRAGMA foreign_keys = OFF")
@@ -526,6 +533,7 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             demora NUMERIC NOT NULL DEFAULT 0,
             fecha_descarga_demora TEXT,
             vacio NUMERIC NOT NULL DEFAULT 0,
+            fecha_descarga_vacio TEXT,
             peajes NUMERIC NOT NULL DEFAULT 0,
             observaciones TEXT,
             estado TEXT NOT NULL DEFAULT 'Programado',
@@ -559,6 +567,7 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             demora,
             fecha_descarga_demora,
             vacio,
+            fecha_descarga_vacio,
             peajes,
             observaciones,
             estado,
@@ -585,6 +594,7 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             demora,
             {fecha_descarga_demora},
             vacio,
+            {fecha_descarga_vacio},
             peajes,
             observaciones,
             estado,
@@ -628,6 +638,8 @@ def _migrate_viaje_fechas_descarga(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE viajes ADD COLUMN fecha_descarga_tarifa TEXT")
     if "fecha_descarga_demora" not in columns:
         connection.execute("ALTER TABLE viajes ADD COLUMN fecha_descarga_demora TEXT")
+    if "fecha_descarga_vacio" not in columns:
+        connection.execute("ALTER TABLE viajes ADD COLUMN fecha_descarga_vacio TEXT")
 
     columns = _table_columns(connection, "viajes")
     if "fecha_descarga_programada" in columns:
@@ -733,6 +745,7 @@ def _migrate_viajes_tipo_carga_dynamic(connection: sqlite3.Connection) -> None:
             demora NUMERIC NOT NULL DEFAULT 0,
             fecha_descarga_demora TEXT,
             vacio NUMERIC NOT NULL DEFAULT 0,
+            fecha_descarga_vacio TEXT,
             peajes NUMERIC NOT NULL DEFAULT 0,
             observaciones TEXT,
             estado TEXT NOT NULL DEFAULT 'Programado',
@@ -766,6 +779,7 @@ def _migrate_viajes_tipo_carga_dynamic(connection: sqlite3.Connection) -> None:
             demora,
             fecha_descarga_demora,
             vacio,
+            fecha_descarga_vacio,
             peajes,
             observaciones,
             estado,
@@ -788,6 +802,7 @@ def _migrate_viajes_tipo_carga_dynamic(connection: sqlite3.Connection) -> None:
             demora,
             fecha_descarga_demora,
             vacio,
+            fecha_descarga_vacio,
             peajes,
             observaciones,
             estado,

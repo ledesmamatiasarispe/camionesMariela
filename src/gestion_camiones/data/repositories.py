@@ -41,6 +41,7 @@ class ViajeRepository:
                 viajes.demora,
                 COALESCE(viajes.fecha_descarga_demora, '') AS fecha_descarga_demora,
                 viajes.vacio,
+                COALESCE(viajes.fecha_descarga_vacio, '') AS fecha_descarga_vacio,
                 COALESCE(
                     (
                         SELECT SUM(peajes.costo)
@@ -148,10 +149,11 @@ class ViajeRepository:
                     demora,
                     fecha_descarga_demora,
                     vacio,
+                    fecha_descarga_vacio,
                     peajes,
                     observaciones,
                     estado
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     viaje.fecha,
@@ -168,6 +170,7 @@ class ViajeRepository:
                     viaje.demora,
                     viaje.fecha_descarga_demora,
                     viaje.vacio,
+                    viaje.fecha_descarga_vacio,
                     peajes_total,
                     viaje.observaciones,
                     "Programado",
@@ -196,6 +199,7 @@ class ViajeRepository:
         demora: float,
         fecha_descarga_demora: str,
         vacio: float,
+        fecha_descarga_vacio: str,
         estado: str,
     ) -> None:
         with closing(self._connect()) as connection:
@@ -210,6 +214,7 @@ class ViajeRepository:
                     demora = ?,
                     fecha_descarga_demora = ?,
                     vacio = ?,
+                    fecha_descarga_vacio = ?,
                     estado = ?,
                     actualizado_en = CURRENT_TIMESTAMP
                 WHERE id = ?
@@ -222,6 +227,7 @@ class ViajeRepository:
                     demora,
                     fecha_descarga_demora,
                     vacio,
+                    fecha_descarga_vacio,
                     estado,
                     viaje_id,
                 ),

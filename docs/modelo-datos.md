@@ -36,8 +36,9 @@ Interpretacion actual:
 - Valores iniciales de `tipo_carga`: `GENERAL` o `PELIGROSA`.
 - El primer `F.DESC`, ubicado despues de `TARIFA`, corresponde a `fecha_descarga_tarifa`.
 - El segundo `F.DESC`, ubicado despues de `DEMORA`, corresponde a `fecha_descarga_demora`.
+- El `F.DESC` de `VACIO` corresponde a `fecha_descarga_vacio`.
 
-Esta decision refleja que tarifa y demora tienen cada una su propia fecha de descarga.
+Esta decision refleja que tarifa, demora y vacio tienen cada uno su propia fecha de descarga.
 
 ## Tablas maestras
 
@@ -170,6 +171,7 @@ Campos principales:
 - `demora`: importe cobrado al cliente por demora.
 - `fecha_descarga_demora`: fecha de descarga asociada a la demora.
 - `vacio`: importe cobrado al cliente por vacio.
+- `fecha_descarga_vacio`: fecha de descarga asociada al vacio.
 - `peajes`: importe historico de compatibilidad; el total actual sale de `viaje_peajes`.
 - `observaciones`
 - `estado`
@@ -180,10 +182,11 @@ Campos principales:
 
 No representan cantidades, duraciones ni estados operativos. Deben tratarse como importes monetarios y mostrarse con formato de moneda en la interfaz.
 
-`tarifa` y `demora` tienen cada una su propia fecha de descarga:
+`tarifa`, `demora` y `vacio` tienen cada una su propia fecha de descarga:
 
 - `fecha_descarga_tarifa`
 - `fecha_descarga_demora`
+- `fecha_descarga_vacio`
 
 ## Relaciones
 

@@ -341,6 +341,11 @@ class MainWindow(QMainWindow):
         fecha_descarga_demora.setDate(QDate.currentDate())
 
         vacio = self._money_input()
+        fecha_descarga_vacio = QDateEdit()
+        fecha_descarga_vacio.setCalendarPopup(True)
+        fecha_descarga_vacio.setDisplayFormat("yyyy-MM-dd")
+        fecha_descarga_vacio.setDate(QDate.currentDate())
+
         peajes = QListWidget()
         peajes.setFixedHeight(92)
         for item in self.peaje_repository.list_all():
@@ -370,6 +375,7 @@ class MainWindow(QMainWindow):
             "demora": demora,
             "fecha_descarga_demora": fecha_descarga_demora,
             "vacio": vacio,
+            "fecha_descarga_vacio": fecha_descarga_vacio,
             "peajes": peajes,
         }
 
@@ -388,6 +394,7 @@ class MainWindow(QMainWindow):
         form.addRow("Demora", demora)
         form.addRow("F.Desc demora", fecha_descarga_demora)
         form.addRow("Vacio", vacio)
+        form.addRow("F.Desc vacio", fecha_descarga_vacio)
         form.addRow("Peajes", peajes)
         panel_layout.addLayout(form)
 
@@ -767,7 +774,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self.table = QTableWidget(0, 18)
+        self.table = QTableWidget(0, 19)
         self.table.setHorizontalHeaderLabels(
             [
                 "ID",
@@ -786,6 +793,7 @@ class MainWindow(QMainWindow):
                 "Demora $",
                 "F.Desc demora",
                 "Vacio $",
+                "F.Desc vacio",
                 "Peajes $",
                 "Estado",
             ]
@@ -837,6 +845,7 @@ class MainWindow(QMainWindow):
             _format_money(viaje.demora),
             viaje.fecha_descarga_demora,
             _format_money(viaje.vacio),
+            viaje.fecha_descarga_vacio,
             _format_money(viaje.peajes),
             viaje.estado,
         ]
@@ -1310,6 +1319,7 @@ class MainWindow(QMainWindow):
                 demora=float(values["demora"]),
                 fecha_descarga_demora=str(values["fecha_descarga_demora"]),
                 vacio=float(values["vacio"]),
+                fecha_descarga_vacio=str(values["fecha_descarga_vacio"]),
                 estado=str(values["estado"]).strip(),
             )
             self._refresh_table()
@@ -1542,7 +1552,14 @@ class MainWindow(QMainWindow):
                 "type": "money",
                 "value": self._money_from_display(self._cell(row, 15)),
             },
-            {"key": "estado", "label": "Estado", "value": self._cell(row, 17)},
+            {
+                "key": "fecha_descarga_vacio",
+                "label": "F.Desc vacio",
+                "type": "date",
+                "value": self._cell(row, 16),
+                "required": False,
+            },
+            {"key": "estado", "label": "Estado", "value": self._cell(row, 18)},
         ]
 
     def _find_by_id(self, items: list[object], item_id: int) -> object | None:
@@ -1586,6 +1603,7 @@ class MainWindow(QMainWindow):
         fecha = self._date_value("fecha")
         fecha_descarga_tarifa = self._date_value("fecha_descarga_tarifa")
         fecha_descarga_demora = self._date_value("fecha_descarga_demora")
+        fecha_descarga_vacio = self._date_value("fecha_descarga_vacio")
 
         return ViajeCreate(
             fecha=fecha,
@@ -1603,6 +1621,7 @@ class MainWindow(QMainWindow):
             demora=self._money_value("demora"),
             fecha_descarga_demora=fecha_descarga_demora,
             vacio=self._money_value("vacio"),
+            fecha_descarga_vacio=fecha_descarga_vacio,
             peaje_ids=self._checked_peaje_ids(),
         )
 
@@ -1616,7 +1635,12 @@ class MainWindow(QMainWindow):
         if isinstance(observaciones, QTextEdit):
             observaciones.clear()
 
-        for key in ("fecha", "fecha_descarga_tarifa", "fecha_descarga_demora"):
+        for key in (
+            "fecha",
+            "fecha_descarga_tarifa",
+            "fecha_descarga_demora",
+            "fecha_descarga_vacio",
+        ):
             widget = self.form_widgets[key]
             if isinstance(widget, QDateEdit):
                 widget.setDate(QDate.currentDate())
