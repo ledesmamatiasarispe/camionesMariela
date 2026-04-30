@@ -19,6 +19,7 @@ class Chofer:
     dni: str
     nombre: str
     apellido: str
+    numero_telefono: str
     fecha_vencimiento_registro: str
     activo: bool
 

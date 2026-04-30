@@ -54,6 +54,7 @@ class ViajeRepository:
                    OR choferes.dni LIKE ?
                    OR choferes.nombre LIKE ?
                    OR choferes.apellido LIKE ?
+                   OR choferes.numero_telefono LIKE ?
                    OR camion.nombre_identificatorio LIKE ?
                    OR camion.patente LIKE ?
                    OR semi.nombre_identificatorio LIKE ?
@@ -61,6 +62,7 @@ class ViajeRepository:
             """
             pattern = f"%{search.strip()}%"
             params = (
+                pattern,
                 pattern,
                 pattern,
                 pattern,
@@ -166,6 +168,7 @@ class ChoferRepository:
                 dni,
                 nombre,
                 apellido,
+                numero_telefono,
                 fecha_vencimiento_registro,
                 activo
             FROM choferes
@@ -187,6 +190,7 @@ class ChoferRepository:
                 dni=row["dni"],
                 nombre=row["nombre"],
                 apellido=row["apellido"],
+                numero_telefono=row["numero_telefono"],
                 fecha_vencimiento_registro=row["fecha_vencimiento_registro"],
                 activo=bool(row["activo"]),
             )

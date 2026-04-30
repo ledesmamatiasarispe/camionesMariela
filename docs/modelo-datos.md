@@ -80,6 +80,7 @@ Campos principales:
 - `dni`
 - `nombre`
 - `apellido`
+- `numero_telefono`
 - `fecha_vencimiento_registro`
 - `activo`
 
@@ -137,6 +138,7 @@ Campos iniciales:
 - `dni`: documento del chofer.
 - `nombre`: nombre del chofer.
 - `apellido`: apellido del chofer.
+- `numero_telefono`: telefono de contacto del chofer.
 - `fecha_vencimiento_registro`: vencimiento de su registro/licencia.
 
 En `viajes` se guarda `chofer_id`, para mantener la relacion sin duplicar datos personales en cada viaje.

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS choferes (
     dni TEXT NOT NULL UNIQUE,
     nombre TEXT NOT NULL,
     apellido TEXT NOT NULL,
+    numero_telefono TEXT NOT NULL DEFAULT '',
     fecha_vencimiento_registro TEXT NOT NULL,
     activo INTEGER NOT NULL DEFAULT 1,
     creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -153,11 +154,12 @@ INSERT OR IGNORE INTO choferes (
     dni,
     nombre,
     apellido,
+    numero_telefono,
     fecha_vencimiento_registro
 ) VALUES
-    (1, '20123456', 'Juan', 'Perez', '2027-12-31'),
-    (2, '24987654', 'Carlos', 'Gomez', '2026-11-30'),
-    (3, '28765432', 'Miguel', 'Silva', '2028-03-15');
+    (1, '20123456', 'Juan', 'Perez', '', '2027-12-31'),
+    (2, '24987654', 'Carlos', 'Gomez', '', '2026-11-30'),
+    (3, '28765432', 'Miguel', 'Silva', '', '2028-03-15');
 
 INSERT OR IGNORE INTO vehiculos (
     id,
@@ -239,7 +241,13 @@ def _migrate_clientes(connection: sqlite3.Connection) -> None:
 
 def _migrate_choferes(connection: sqlite3.Connection) -> None:
     columns = _table_columns(connection, "choferes")
-    required_columns = {"dni", "nombre", "apellido", "fecha_vencimiento_registro"}
+    required_columns = {
+        "dni",
+        "nombre",
+        "apellido",
+        "numero_telefono",
+        "fecha_vencimiento_registro",
+    }
 
     if required_columns.issubset(columns):
         return
@@ -248,8 +256,23 @@ def _migrate_choferes(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE choferes ADD COLUMN dni TEXT")
     if "apellido" not in columns:
         connection.execute("ALTER TABLE choferes ADD COLUMN apellido TEXT")
+    if "numero_telefono" not in columns:
+        connection.execute(
+            "ALTER TABLE choferes ADD COLUMN numero_telefono TEXT NOT NULL DEFAULT ''"
+        )
     if "fecha_vencimiento_registro" not in columns:
         connection.execute("ALTER TABLE choferes ADD COLUMN fecha_vencimiento_registro TEXT")
+
+    if "telefono" in columns:
+        connection.execute(
+            """
+            UPDATE choferes
+            SET numero_telefono = COALESCE(
+                NULLIF(numero_telefono, ''),
+                COALESCE(telefono, '')
+            )
+            """
+        )
 
     connection.execute(
         """
@@ -269,6 +292,7 @@ def _migrate_choferes(connection: sqlite3.Connection) -> None:
                 THEN substr(trim(nombre), 1, instr(trim(nombre), ' ') - 1)
                 ELSE trim(nombre)
             END,
+            numero_telefono = COALESCE(numero_telefono, ''),
             fecha_vencimiento_registro = COALESCE(fecha_vencimiento_registro, '')
         """
     )
