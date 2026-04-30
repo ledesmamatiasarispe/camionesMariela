@@ -127,14 +127,20 @@ Campos principales:
 - `camion_id`
 - `semi_id`
 - `tipo_carga`
-- `tarifa`
+- `tarifa`: importe cobrado al cliente por tarifa del viaje.
 - `fecha_descarga_programada`
-- `demora`
+- `demora`: importe cobrado al cliente por demora.
 - `fecha_descarga_real`
-- `vacio`
+- `vacio`: importe cobrado al cliente por vacio.
 - `peajes`
 - `observaciones`
 - `estado`
+
+## Importes del viaje
+
+`tarifa`, `demora` y `vacio` son precios cobrados al cliente en cada viaje.
+
+No representan cantidades, duraciones ni estados operativos. Deben tratarse como importes monetarios y mostrarse con formato de moneda en la interfaz.
 
 ## Relaciones
 

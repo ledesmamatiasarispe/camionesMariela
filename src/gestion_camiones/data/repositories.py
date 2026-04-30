@@ -101,24 +101,24 @@ class ViajeRepository:
 
         return [ViajeResumen(**dict(row)) for row in rows]
 
-    def dashboard_metrics(self) -> dict[str, int]:
+    def dashboard_metrics(self) -> dict[str, int | float]:
         with closing(self._connect()) as connection:
             total = connection.execute("SELECT COUNT(*) FROM viajes").fetchone()[0]
-            en_viaje = connection.execute(
-                "SELECT COUNT(*) FROM viajes WHERE estado = 'En viaje'"
+            tarifa_total = connection.execute(
+                "SELECT COALESCE(SUM(tarifa), 0) FROM viajes"
             ).fetchone()[0]
-            demorados = connection.execute(
-                "SELECT COUNT(*) FROM viajes WHERE demora > 0"
+            demora_total = connection.execute(
+                "SELECT COALESCE(SUM(demora), 0) FROM viajes"
             ).fetchone()[0]
-            finalizados = connection.execute(
-                "SELECT COUNT(*) FROM viajes WHERE estado = 'Finalizado'"
+            vacio_total = connection.execute(
+                "SELECT COALESCE(SUM(vacio), 0) FROM viajes"
             ).fetchone()[0]
 
         return {
             "Viajes cargados": total,
-            "En viaje": en_viaje,
-            "Con demora": demorados,
-            "Finalizados": finalizados,
+            "Tarifa total": tarifa_total,
+            "Demora total": demora_total,
+            "Vacio total": vacio_total,
         }
 
     def _connect(self) -> sqlite3.Connection:

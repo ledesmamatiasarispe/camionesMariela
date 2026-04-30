@@ -124,7 +124,7 @@ class MainWindow(QMainWindow):
         title_block.setSpacing(2)
         title = QLabel("Tablero operativo")
         title.setObjectName("pageTitle")
-        subtitle = QLabel("Resumen de viajes, tarifas, demoras y unidades.")
+        subtitle = QLabel("Resumen de viajes e importes cobrados al cliente.")
         subtitle.setObjectName("muted")
         title_block.addWidget(title)
         title_block.addWidget(subtitle)
@@ -150,7 +150,8 @@ class MainWindow(QMainWindow):
         metrics = self.viaje_repository.dashboard_metrics()
 
         for column, (label, value) in enumerate(metrics.items()):
-            card = MetricCard(label, str(value))
+            display_value = str(value) if label == "Viajes cargados" else _format_money(value)
+            card = MetricCard(label, display_value)
             self.metric_cards[label] = card
             grid.addWidget(card, 0, column)
 
@@ -187,11 +188,11 @@ class MainWindow(QMainWindow):
                 "T.Carga",
                 "Camion",
                 "Semi",
-                "Tarifa",
+                "Tarifa $",
                 "F.Desc prog.",
-                "Demora",
+                "Demora $",
                 "F.Desc real",
-                "Vacio",
+                "Vacio $",
                 "Peajes",
                 "Estado",
             ]
