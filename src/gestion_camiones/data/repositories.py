@@ -4,7 +4,7 @@ from contextlib import closing
 import sqlite3
 from pathlib import Path
 
-from gestion_camiones.data.models import ViajeResumen
+from gestion_camiones.data.models import Chofer, ViajeResumen
 
 
 class ViajeRepository:
@@ -20,7 +20,7 @@ class ViajeRepository:
                 lugar_carga.nombre AS lugar_carga,
                 lugar_descarga.nombre AS lugar_descarga,
                 COALESCE(viajes.observaciones, '') AS observaciones,
-                choferes.nombre AS chofer,
+                trim(choferes.nombre || ' ' || choferes.apellido) AS chofer,
                 COALESCE(viajes.tipo_carga, '') AS tipo_carga,
                 camiones.patente AS camion,
                 COALESCE(semis.patente, '') AS semi,
@@ -47,12 +47,24 @@ class ViajeRepository:
                    OR cargas.descripcion LIKE ?
                    OR lugar_carga.nombre LIKE ?
                    OR lugar_descarga.nombre LIKE ?
+                   OR choferes.dni LIKE ?
                    OR choferes.nombre LIKE ?
+                   OR choferes.apellido LIKE ?
                    OR camiones.patente LIKE ?
                    OR semis.patente LIKE ?
             """
             pattern = f"%{search.strip()}%"
-            params = (pattern, pattern, pattern, pattern, pattern, pattern, pattern)
+            params = (
+                pattern,
+                pattern,
+                pattern,
+                pattern,
+                pattern,
+                pattern,
+                pattern,
+                pattern,
+                pattern,
+            )
 
         query += " ORDER BY viajes.fecha_descarga_programada, viajes.id"
 
@@ -80,6 +92,51 @@ class ViajeRepository:
             "Con demora": demorados,
             "Finalizados": finalizados,
         }
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+
+class ChoferRepository:
+    def __init__(self, database_path: Path) -> None:
+        self.database_path = database_path
+
+    def list_all(self, include_inactive: bool = False) -> list[Chofer]:
+        query = """
+            SELECT
+                id,
+                dni,
+                nombre,
+                apellido,
+                fecha_vencimiento_registro,
+                activo
+            FROM choferes
+        """
+        params: tuple[int, ...] = ()
+
+        if not include_inactive:
+            query += " WHERE activo = ?"
+            params = (1,)
+
+        query += " ORDER BY apellido, nombre"
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, params).fetchall()
+
+        return [
+            Chofer(
+                id=row["id"],
+                dni=row["dni"],
+                nombre=row["nombre"],
+                apellido=row["apellido"],
+                fecha_vencimiento_registro=row["fecha_vencimiento_registro"],
+                activo=bool(row["activo"]),
+            )
+            for row in rows
+        ]
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)

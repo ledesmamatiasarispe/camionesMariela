@@ -31,8 +31,10 @@ CREATE TABLE IF NOT EXISTS lugares (
 
 CREATE TABLE IF NOT EXISTS choferes (
     id INTEGER PRIMARY KEY,
-    nombre TEXT NOT NULL UNIQUE,
-    telefono TEXT,
+    dni TEXT NOT NULL UNIQUE,
+    nombre TEXT NOT NULL,
+    apellido TEXT NOT NULL,
+    fecha_vencimiento_registro TEXT NOT NULL,
     activo INTEGER NOT NULL DEFAULT 1,
     creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -91,6 +93,12 @@ CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_programada
 """
 
 
+POST_MIGRATION_SQL = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_choferes_dni ON choferes(dni);
+CREATE INDEX IF NOT EXISTS idx_choferes_apellido_nombre ON choferes(apellido, nombre);
+"""
+
+
 SEED_SQL = """
 INSERT OR IGNORE INTO clientes (id, nombre) VALUES
     (1, 'Romero e hijos'),
@@ -108,10 +116,16 @@ INSERT OR IGNORE INTO lugares (id, nombre) VALUES
     (3, 'Cliente Sur'),
     (4, 'Puerto');
 
-INSERT OR IGNORE INTO choferes (id, nombre, telefono) VALUES
-    (1, 'Juan Perez', ''),
-    (2, 'Carlos Gomez', ''),
-    (3, 'Miguel Silva', '');
+INSERT OR IGNORE INTO choferes (
+    id,
+    dni,
+    nombre,
+    apellido,
+    fecha_vencimiento_registro
+) VALUES
+    (1, '20123456', 'Juan', 'Perez', '2027-12-31'),
+    (2, '24987654', 'Carlos', 'Gomez', '2026-11-30'),
+    (3, '28765432', 'Miguel', 'Silva', '2028-03-15');
 
 INSERT OR IGNORE INTO camiones (id, patente, descripcion) VALUES
     (1, 'AB123CD', 'Tractor principal'),
@@ -162,5 +176,49 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
 
     with closing(sqlite3.connect(database_path)) as connection:
         connection.executescript(SCHEMA_SQL)
+        _migrate_choferes(connection)
+        connection.executescript(POST_MIGRATION_SQL)
         if seed:
             connection.executescript(SEED_SQL)
+        connection.commit()
+
+
+def _migrate_choferes(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "choferes")
+    required_columns = {"dni", "nombre", "apellido", "fecha_vencimiento_registro"}
+
+    if required_columns.issubset(columns):
+        return
+
+    if "dni" not in columns:
+        connection.execute("ALTER TABLE choferes ADD COLUMN dni TEXT")
+    if "apellido" not in columns:
+        connection.execute("ALTER TABLE choferes ADD COLUMN apellido TEXT")
+    if "fecha_vencimiento_registro" not in columns:
+        connection.execute("ALTER TABLE choferes ADD COLUMN fecha_vencimiento_registro TEXT")
+
+    connection.execute(
+        """
+        UPDATE choferes
+        SET
+            dni = COALESCE(NULLIF(dni, ''), 'PENDIENTE-' || id),
+            apellido = COALESCE(
+                NULLIF(apellido, ''),
+                CASE
+                    WHEN instr(trim(nombre), ' ') > 0
+                    THEN substr(trim(nombre), instr(trim(nombre), ' ') + 1)
+                    ELSE ''
+                END
+            ),
+            nombre = CASE
+                WHEN instr(trim(nombre), ' ') > 0
+                THEN substr(trim(nombre), 1, instr(trim(nombre), ' ') - 1)
+                ELSE trim(nombre)
+            END,
+            fecha_vencimiento_registro = COALESCE(fecha_vencimiento_registro, '')
+        """
+    )
+
+
+def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    return {row[1] for row in connection.execute(f"PRAGMA table_info({table_name})")}

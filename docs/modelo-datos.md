@@ -74,8 +74,10 @@ Guarda choferes.
 Campos principales:
 
 - `id`
+- `dni`
 - `nombre`
-- `telefono`
+- `apellido`
+- `fecha_vencimiento_registro`
 - `activo`
 
 ### camiones
@@ -130,6 +132,20 @@ Campos principales:
 - Un camion puede tener muchos viajes.
 - Un semi puede tener muchos viajes.
 - Un viaje pertenece a un cliente, una carga, un origen, un destino, un chofer y un camion.
+
+## Objeto chofer
+
+El chofer es una entidad propia, no un texto libre dentro del viaje.
+
+Campos iniciales:
+
+- `id`: identificador interno.
+- `dni`: documento del chofer.
+- `nombre`: nombre del chofer.
+- `apellido`: apellido del chofer.
+- `fecha_vencimiento_registro`: vencimiento de su registro/licencia.
+
+En `viajes` se guarda `chofer_id`, para mantener la relacion sin duplicar datos personales en cada viaje.
 
 ## Base local
 

@@ -4,6 +4,20 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class Chofer:
+    id: int
+    dni: str
+    nombre: str
+    apellido: str
+    fecha_vencimiento_registro: str
+    activo: bool
+
+    @property
+    def nombre_completo(self) -> str:
+        return f"{self.nombre} {self.apellido}".strip()
+
+
+@dataclass(frozen=True)
 class ViajeResumen:
     id: int
     cliente: str
