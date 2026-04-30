@@ -42,8 +42,8 @@ En este proyecto ya esta configurado como `origin`.
 Crear y subir un tag:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 GitHub Actions ejecutara el workflow de release, construyendo paquetes para Windows y macOS y adjuntandolos a la release.
