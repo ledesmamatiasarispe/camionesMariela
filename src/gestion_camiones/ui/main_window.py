@@ -6,8 +6,11 @@ from pathlib import Path
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDateEdit,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
     QFrame,
@@ -38,6 +41,7 @@ from gestion_camiones.data.repositories import (
     ClienteRepository,
     LugarRepository,
     PeajeRepository,
+    TipoCargaRepository,
     VehiculoRepository,
     ViajeRepository,
 )
@@ -111,9 +115,11 @@ class MainWindow(QMainWindow):
         self.chofer_repository = ChoferRepository(database_path)
         self.vehiculo_repository = VehiculoRepository(database_path)
         self.peaje_repository = PeajeRepository(database_path)
+        self.tipo_carga_repository = TipoCargaRepository(database_path)
         self.metric_cards: dict[str, MetricCard] = {}
         self.search_input: QLineEdit | None = None
         self.table: QTableWidget | None = None
+        self.object_tables: dict[str, QTableWidget] = {}
         self.tabs: QTabWidget | None = None
         self.nav_buttons: dict[str, QPushButton] = {}
         self.page_title_label: QLabel | None = None
@@ -279,12 +285,6 @@ class MainWindow(QMainWindow):
         title.setObjectName("sectionTitle")
         header.addWidget(title)
         header.addStretch()
-        header.addWidget(
-            self._build_crud_actions(
-                "viaje",
-                create_callback=self._save_viaje,
-            )
-        )
         panel_layout.addLayout(header)
 
         form = QFormLayout()
@@ -317,9 +317,7 @@ class MainWindow(QMainWindow):
             [(f"{item.nombre_completo} - DNI {item.dni}", item.id)
              for item in self.chofer_repository.list_all()]
         )
-        tipo_carga = self._build_combo(
-            [("General", "GENERAL"), ("Carga peligrosa", "PELIGROSA")]
-        )
+        tipo_carga = self._build_tipo_carga_combo()
         camion = self._build_combo(
             [(item.etiqueta, item.id)
              for item in self.vehiculo_repository.list_all("CAMION")]
@@ -393,6 +391,14 @@ class MainWindow(QMainWindow):
         form.addRow("Peajes", peajes)
         panel_layout.addLayout(form)
 
+        actions = QHBoxLayout()
+        actions.addStretch()
+        save_button = QPushButton("Guardar viaje")
+        save_button.setObjectName("primaryButton")
+        save_button.clicked.connect(self._save_viaje)
+        actions.addWidget(save_button)
+        panel_layout.addLayout(actions)
+
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidgetResizable(True)
@@ -411,90 +417,63 @@ class MainWindow(QMainWindow):
         return tab
 
     def _build_clients_tab(self) -> QWidget:
-        rows = [
-            [
-                item.nombre,
-                item.domicilio_fiscal,
-                item.email,
-                item.numero_contacto,
-            ]
-            for item in self.cliente_repository.list_all()
-        ]
         return self._build_static_table_tab(
             "Clientes",
             ["Nombre", "Domicilio fiscal", "Email", "Contacto"],
-            rows,
+            self._cliente_rows(),
+            create_callback=self._create_cliente,
+            edit_callback=self._edit_cliente,
+            delete_callback=self._delete_cliente,
         )
 
     def _build_lugares_tab(self) -> QWidget:
-        roles_by_lugar: dict[int, list[str]] = {}
-        for role in self.lugar_repository.list_roles():
-            roles_by_lugar.setdefault(role.lugar_id, []).append(role.rol.title())
-
-        rows = [
-            [
-                item.nombre,
-                item.direccion,
-                ", ".join(roles_by_lugar.get(item.id, [])),
-                item.observaciones,
-            ]
-            for item in self.lugar_repository.list_all()
-        ]
         return self._build_static_table_tab(
             "Lugares",
             ["Nombre", "Direccion", "Roles", "Observaciones"],
-            rows,
+            self._lugar_rows(),
+            create_callback=self._create_lugar,
+            edit_callback=self._edit_lugar,
+            delete_callback=self._delete_lugar,
         )
 
     def _build_choferes_tab(self) -> QWidget:
-        rows = [
-            [
-                item.dni,
-                item.nombre,
-                item.apellido,
-                item.numero_telefono,
-                item.fecha_vencimiento_registro,
-            ]
-            for item in self.chofer_repository.list_all()
-        ]
         return self._build_static_table_tab(
             "Chofer",
             ["DNI", "Nombre", "Apellido", "Telefono", "Vencimiento registro"],
-            rows,
+            self._chofer_rows(),
+            create_callback=self._create_chofer,
+            edit_callback=self._edit_chofer,
+            delete_callback=self._delete_chofer,
         )
 
     def _build_tipo_carga_tab(self) -> QWidget:
         return self._build_static_table_tab(
             "T.Carga",
             ["Nombre", "Codigo interno"],
-            [["General", "GENERAL"], ["Carga peligrosa", "PELIGROSA"]],
+            self._tipo_carga_rows(),
+            create_callback=self._create_tipo_carga,
+            edit_callback=self._edit_tipo_carga,
+            delete_callback=self._delete_tipo_carga,
         )
 
     def _build_vehiculos_tab(self) -> QWidget:
-        rows = [
-            [
-                item.tipo.title(),
-                item.nombre_identificatorio,
-                item.patente,
-                item.observaciones,
-            ]
-            for item in self.vehiculo_repository.list_all()
-        ]
         return self._build_static_table_tab(
             "Vehiculos",
             ["Tipo", "Nombre identificatorio", "Patente", "Observaciones"],
-            rows,
+            self._vehiculo_rows(),
+            create_callback=self._create_vehiculo,
+            edit_callback=self._edit_vehiculo,
+            delete_callback=self._delete_vehiculo,
         )
 
     def _build_peajes_tab(self) -> QWidget:
-        rows = [
-            [item.nombre, item.direccion, _format_money(item.costo)]
-            for item in self.peaje_repository.list_all()
-        ]
         return self._build_static_table_tab(
             "Peajes",
             ["Nombre", "Direccion", "Costo"],
-            rows,
+            self._peaje_rows(),
+            create_callback=self._create_peaje,
+            edit_callback=self._edit_peaje,
+            delete_callback=self._delete_peaje,
         )
 
     def _build_statistics_tab(self) -> QWidget:
@@ -512,31 +491,124 @@ class MainWindow(QMainWindow):
             "Opciones",
             ["Opcion", "Valor"],
             [
-                ["Base de datos", str(self.database_path)],
-                ["Actualizaciones", "GitHub Releases"],
-                ["Modo", "Cliente sin servidor"],
+                (1, ["Base de datos", str(self.database_path)]),
+                (2, ["Actualizaciones", "GitHub Releases"]),
+                (3, ["Modo", "Cliente sin servidor"]),
             ],
+            show_actions=False,
         )
+
+    def _cliente_rows(self) -> list[tuple[int, list[str]]]:
+        return [
+            (
+                item.id,
+                [
+                    item.nombre,
+                    item.domicilio_fiscal,
+                    item.email,
+                    item.numero_contacto,
+                ],
+            )
+            for item in self.cliente_repository.list_all()
+        ]
+
+    def _lugar_rows(self) -> list[tuple[int, list[str]]]:
+        roles_by_lugar: dict[int, list[str]] = {}
+        for role in self.lugar_repository.list_roles():
+            roles_by_lugar.setdefault(role.lugar_id, []).append(role.rol.title())
+
+        return [
+            (
+                item.id,
+                [
+                    item.nombre,
+                    item.direccion,
+                    ", ".join(roles_by_lugar.get(item.id, [])),
+                    item.observaciones,
+                ],
+            )
+            for item in self.lugar_repository.list_all()
+        ]
+
+    def _chofer_rows(self) -> list[tuple[int, list[str]]]:
+        return [
+            (
+                item.id,
+                [
+                    item.dni,
+                    item.nombre,
+                    item.apellido,
+                    item.numero_telefono,
+                    item.fecha_vencimiento_registro,
+                ],
+            )
+            for item in self.chofer_repository.list_all()
+        ]
+
+    def _tipo_carga_rows(self) -> list[tuple[int, list[str]]]:
+        return [
+            (item.id, [item.nombre, item.codigo])
+            for item in self.tipo_carga_repository.list_all()
+        ]
+
+    def _vehiculo_rows(self) -> list[tuple[int, list[str]]]:
+        return [
+            (
+                item.id,
+                [
+                    item.tipo.title(),
+                    item.nombre_identificatorio,
+                    item.patente,
+                    item.observaciones,
+                ],
+            )
+            for item in self.vehiculo_repository.list_all()
+        ]
+
+    def _peaje_rows(self) -> list[tuple[int, list[str]]]:
+        return [
+            (item.id, [item.nombre, item.direccion, _format_money(item.costo)])
+            for item in self.peaje_repository.list_all()
+        ]
 
     def _build_static_table_tab(
         self,
         title: str,
         headers: list[str],
-        rows: list[list[str]],
+        rows: list[tuple[int, list[str]]],
+        *,
+        show_actions: bool = True,
+        create_callback: Callable[[], None] | None = None,
+        edit_callback: Callable[[], None] | None = None,
+        delete_callback: Callable[[], None] | None = None,
     ) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
-        layout.addWidget(self._build_readonly_table_panel(title, headers, rows), stretch=1)
+        panel = self._build_readonly_table_panel(
+            title,
+            headers,
+            rows,
+            show_actions=show_actions,
+            create_callback=create_callback,
+            edit_callback=edit_callback,
+            delete_callback=delete_callback,
+        )
+        layout.addWidget(panel, stretch=1)
         return tab
 
     def _build_readonly_table_panel(
         self,
         title: str,
         headers: list[str],
-        rows: list[list[str]],
+        rows: list[tuple[int, list[str]]],
+        *,
+        show_actions: bool = True,
+        create_callback: Callable[[], None] | None = None,
+        edit_callback: Callable[[], None] | None = None,
+        delete_callback: Callable[[], None] | None = None,
     ) -> QWidget:
         panel = QFrame()
         panel.setObjectName("panel")
@@ -553,10 +625,19 @@ class MainWindow(QMainWindow):
         header_title.setObjectName("sectionTitle")
         header_layout.addWidget(header_title)
         header_layout.addStretch()
-        header_layout.addWidget(self._build_crud_actions(title))
+        if show_actions:
+            header_layout.addWidget(
+                self._build_crud_actions(
+                    title,
+                    create_callback=create_callback,
+                    edit_callback=edit_callback,
+                    delete_callback=delete_callback,
+                )
+            )
 
-        table = QTableWidget(len(rows), len(headers))
-        table.setHorizontalHeaderLabels(headers)
+        table = QTableWidget(len(rows), len(headers) + 1)
+        table.setHorizontalHeaderLabels(["ID", *headers])
+        table.setColumnHidden(0, True)
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
@@ -564,15 +645,85 @@ class MainWindow(QMainWindow):
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
-        for row_index, row in enumerate(rows):
-            for column_index, value in enumerate(row):
+        for row_index, (row_id, row) in enumerate(rows):
+            id_item = QTableWidgetItem(str(row_id))
+            id_item.setFlags(id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            table.setItem(row_index, 0, id_item)
+            for column_index, value in enumerate(row, start=1):
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 table.setItem(row_index, column_index, item)
 
+        self.object_tables[title] = table
         layout.addWidget(header)
         layout.addWidget(table, stretch=1)
         return panel
+
+    def _populate_object_table(
+        self,
+        title: str,
+        rows: list[tuple[int, list[str]]],
+    ) -> None:
+        table = self.object_tables.get(title)
+        if table is None:
+            return
+
+        table.setRowCount(len(rows))
+        for row_index, (row_id, row) in enumerate(rows):
+            id_item = QTableWidgetItem(str(row_id))
+            id_item.setFlags(id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            table.setItem(row_index, 0, id_item)
+            for column_index, value in enumerate(row, start=1):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row_index, column_index, item)
+        table.resizeColumnsToContents()
+
+    def _refresh_object_table(self, title: str) -> None:
+        loaders = {
+            "Clientes": self._cliente_rows,
+            "Lugares": self._lugar_rows,
+            "Chofer": self._chofer_rows,
+            "T.Carga": self._tipo_carga_rows,
+            "Vehiculos": self._vehiculo_rows,
+            "Peajes": self._peaje_rows,
+        }
+        loader = loaders.get(title)
+        if loader is not None:
+            self._populate_object_table(title, loader())
+
+    def _selected_object_id(self, title: str) -> int | None:
+        table = self.object_tables.get(title)
+        if table is None:
+            return None
+
+        row = table.currentRow()
+        if row < 0:
+            QMessageBox.warning(
+                self,
+                "Seleccion requerida",
+                f"Selecciona un registro de {title} primero.",
+            )
+            return None
+
+        item = table.item(row, 0)
+        return None if item is None else int(item.text())
+
+    def _selected_viaje_id(self) -> int | None:
+        if self.table is None:
+            return None
+
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.warning(
+                self,
+                "Seleccion requerida",
+                "Selecciona un viaje primero.",
+            )
+            return None
+
+        item = self.table.item(row, 0)
+        return None if item is None else int(item.text())
 
     def _build_metrics(self) -> QGridLayout:
         grid = QGridLayout()
@@ -611,12 +762,15 @@ class MainWindow(QMainWindow):
             self._build_crud_actions(
                 "viaje",
                 create_callback=self._go_to_create_tab,
+                edit_callback=self._edit_viaje,
+                delete_callback=self._delete_viaje,
             )
         )
 
-        self.table = QTableWidget(0, 17)
+        self.table = QTableWidget(0, 18)
         self.table.setHorizontalHeaderLabels(
             [
+                "ID",
                 "Fecha",
                 "Cliente",
                 "Carga",
@@ -636,6 +790,7 @@ class MainWindow(QMainWindow):
                 "Estado",
             ]
         )
+        self.table.setColumnHidden(0, True)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
@@ -666,6 +821,7 @@ class MainWindow(QMainWindow):
 
     def _viaje_to_row(self, viaje: ViajeResumen) -> list[str]:
         return [
+            str(viaje.id),
             viaje.fecha,
             viaje.cliente,
             viaje.carga,
@@ -733,6 +889,677 @@ class MainWindow(QMainWindow):
             f"{action} {section_label}",
             f"La accion {action.lower()} para {section_label} queda lista para implementar.",
         )
+
+    def _record_values(
+        self,
+        title: str,
+        fields: list[dict[str, object]],
+    ) -> dict[str, object] | None:
+        dialog = RecordDialog(self, title, fields)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+
+        values = dialog.values()
+        missing = [
+            str(field["label"])
+            for field in fields
+            if field.get("required", True)
+            and not str(values.get(str(field["key"]), "")).strip()
+        ]
+        if missing:
+            QMessageBox.warning(
+                self,
+                "Datos incompletos",
+                "Completa los campos obligatorios: " + ", ".join(missing),
+            )
+            return None
+        return values
+
+    def _run_data_action(
+        self,
+        success_message: str,
+        callback: Callable[[], None],
+    ) -> None:
+        try:
+            callback()
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"No se pudo completar la accion.\n{exc}")
+            return
+        QMessageBox.information(self, "Listo", success_message)
+
+    def _create_cliente(self) -> None:
+        values = self._record_values("Crear cliente", self._cliente_fields())
+        if values is None:
+            return
+
+        def save() -> None:
+            self.cliente_repository.create(
+                nombre=str(values["nombre"]).strip(),
+                domicilio_fiscal=str(values["domicilio_fiscal"]).strip(),
+                email=str(values["email"]).strip(),
+                numero_contacto=str(values["numero_contacto"]).strip(),
+            )
+            self._refresh_object_table("Clientes")
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Cliente creado.", save)
+
+    def _edit_cliente(self) -> None:
+        cliente_id = self._selected_object_id("Clientes")
+        if cliente_id is None:
+            return
+        cliente = self._find_by_id(self.cliente_repository.list_all(), cliente_id)
+        if cliente is None:
+            return
+        values = self._record_values(
+            "Editar cliente",
+            self._cliente_fields(
+                {
+                    "nombre": cliente.nombre,
+                    "domicilio_fiscal": cliente.domicilio_fiscal,
+                    "email": cliente.email,
+                    "numero_contacto": cliente.numero_contacto,
+                }
+            ),
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.cliente_repository.update(
+                cliente_id,
+                nombre=str(values["nombre"]).strip(),
+                domicilio_fiscal=str(values["domicilio_fiscal"]).strip(),
+                email=str(values["email"]).strip(),
+                numero_contacto=str(values["numero_contacto"]).strip(),
+            )
+            self._refresh_object_table("Clientes")
+            self._refresh_table()
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Cliente actualizado.", save)
+
+    def _delete_cliente(self) -> None:
+        cliente_id = self._selected_object_id("Clientes")
+        if cliente_id is not None:
+            self._soft_delete_object(
+                "cliente",
+                lambda: self.cliente_repository.delete(cliente_id),
+                lambda: self._refresh_object_table("Clientes"),
+            )
+
+    def _create_lugar(self) -> None:
+        values = self._record_values("Crear lugar", self._lugar_fields())
+        if values is None:
+            return
+
+        def save() -> None:
+            self.lugar_repository.create(
+                nombre=str(values["nombre"]).strip(),
+                direccion=str(values["direccion"]).strip(),
+                observaciones=str(values["observaciones"]).strip(),
+                roles=tuple(values["roles"]),
+            )
+            self._refresh_object_table("Lugares")
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Lugar creado.", save)
+
+    def _edit_lugar(self) -> None:
+        lugar_id = self._selected_object_id("Lugares")
+        if lugar_id is None:
+            return
+        lugar = self._find_by_id(self.lugar_repository.list_all(), lugar_id)
+        if lugar is None:
+            return
+        roles = tuple(
+            role.rol
+            for role in self.lugar_repository.list_roles()
+            if role.lugar_id == lugar_id
+        )
+        values = self._record_values(
+            "Editar lugar",
+            self._lugar_fields(
+                {
+                    "nombre": lugar.nombre,
+                    "direccion": lugar.direccion,
+                    "observaciones": lugar.observaciones,
+                    "roles": roles,
+                }
+            ),
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.lugar_repository.update(
+                lugar_id,
+                nombre=str(values["nombre"]).strip(),
+                direccion=str(values["direccion"]).strip(),
+                observaciones=str(values["observaciones"]).strip(),
+                roles=tuple(values["roles"]),
+            )
+            self._refresh_object_table("Lugares")
+            self._refresh_table()
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Lugar actualizado.", save)
+
+    def _delete_lugar(self) -> None:
+        lugar_id = self._selected_object_id("Lugares")
+        if lugar_id is not None:
+            self._soft_delete_object(
+                "lugar",
+                lambda: self.lugar_repository.delete(lugar_id),
+                lambda: self._refresh_object_table("Lugares"),
+            )
+
+    def _create_chofer(self) -> None:
+        values = self._record_values("Crear chofer", self._chofer_fields())
+        if values is None:
+            return
+
+        def save() -> None:
+            self.chofer_repository.create(
+                dni=str(values["dni"]).strip(),
+                nombre=str(values["nombre"]).strip(),
+                apellido=str(values["apellido"]).strip(),
+                numero_telefono=str(values["numero_telefono"]).strip(),
+                fecha_vencimiento_registro=str(values["fecha_vencimiento_registro"]),
+            )
+            self._refresh_object_table("Chofer")
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Chofer creado.", save)
+
+    def _edit_chofer(self) -> None:
+        chofer_id = self._selected_object_id("Chofer")
+        if chofer_id is None:
+            return
+        chofer = self._find_by_id(self.chofer_repository.list_all(), chofer_id)
+        if chofer is None:
+            return
+        values = self._record_values(
+            "Editar chofer",
+            self._chofer_fields(
+                {
+                    "dni": chofer.dni,
+                    "nombre": chofer.nombre,
+                    "apellido": chofer.apellido,
+                    "numero_telefono": chofer.numero_telefono,
+                    "fecha_vencimiento_registro": chofer.fecha_vencimiento_registro,
+                }
+            ),
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.chofer_repository.update(
+                chofer_id,
+                dni=str(values["dni"]).strip(),
+                nombre=str(values["nombre"]).strip(),
+                apellido=str(values["apellido"]).strip(),
+                numero_telefono=str(values["numero_telefono"]).strip(),
+                fecha_vencimiento_registro=str(values["fecha_vencimiento_registro"]),
+            )
+            self._refresh_object_table("Chofer")
+            self._refresh_table()
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Chofer actualizado.", save)
+
+    def _delete_chofer(self) -> None:
+        chofer_id = self._selected_object_id("Chofer")
+        if chofer_id is not None:
+            self._soft_delete_object(
+                "chofer",
+                lambda: self.chofer_repository.delete(chofer_id),
+                lambda: self._refresh_object_table("Chofer"),
+            )
+
+    def _create_tipo_carga(self) -> None:
+        values = self._record_values("Crear tipo de carga", self._tipo_carga_fields())
+        if values is None:
+            return
+
+        def save() -> None:
+            self.tipo_carga_repository.create(
+                codigo=str(values["codigo"]).strip().upper(),
+                nombre=str(values["nombre"]).strip(),
+            )
+            self._refresh_object_table("T.Carga")
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Tipo de carga creado.", save)
+
+    def _edit_tipo_carga(self) -> None:
+        tipo_id = self._selected_object_id("T.Carga")
+        if tipo_id is None:
+            return
+        tipo = self._find_by_id(self.tipo_carga_repository.list_all(), tipo_id)
+        if tipo is None:
+            return
+        values = self._record_values(
+            "Editar tipo de carga",
+            self._tipo_carga_fields({"codigo": tipo.codigo, "nombre": tipo.nombre}),
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.tipo_carga_repository.update(
+                tipo_id,
+                codigo=str(values["codigo"]).strip().upper(),
+                nombre=str(values["nombre"]).strip(),
+            )
+            self._refresh_object_table("T.Carga")
+            self._refresh_table()
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Tipo de carga actualizado.", save)
+
+    def _delete_tipo_carga(self) -> None:
+        tipo_id = self._selected_object_id("T.Carga")
+        if tipo_id is not None:
+            self._soft_delete_object(
+                "tipo de carga",
+                lambda: self.tipo_carga_repository.delete(tipo_id),
+                lambda: self._refresh_object_table("T.Carga"),
+            )
+
+    def _create_vehiculo(self) -> None:
+        values = self._record_values("Crear vehiculo", self._vehiculo_fields())
+        if values is None:
+            return
+
+        def save() -> None:
+            self.vehiculo_repository.create(
+                tipo=str(values["tipo"]),
+                nombre_identificatorio=str(values["nombre_identificatorio"]).strip(),
+                patente=str(values["patente"]).strip().upper(),
+                observaciones=str(values["observaciones"]).strip(),
+            )
+            self._refresh_object_table("Vehiculos")
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Vehiculo creado.", save)
+
+    def _edit_vehiculo(self) -> None:
+        vehiculo_id = self._selected_object_id("Vehiculos")
+        if vehiculo_id is None:
+            return
+        vehiculo = self._find_by_id(self.vehiculo_repository.list_all(), vehiculo_id)
+        if vehiculo is None:
+            return
+        values = self._record_values(
+            "Editar vehiculo",
+            self._vehiculo_fields(
+                {
+                    "tipo": vehiculo.tipo,
+                    "nombre_identificatorio": vehiculo.nombre_identificatorio,
+                    "patente": vehiculo.patente,
+                    "observaciones": vehiculo.observaciones,
+                }
+            ),
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.vehiculo_repository.update(
+                vehiculo_id,
+                tipo=str(values["tipo"]),
+                nombre_identificatorio=str(values["nombre_identificatorio"]).strip(),
+                patente=str(values["patente"]).strip().upper(),
+                observaciones=str(values["observaciones"]).strip(),
+            )
+            self._refresh_object_table("Vehiculos")
+            self._refresh_table()
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Vehiculo actualizado.", save)
+
+    def _delete_vehiculo(self) -> None:
+        vehiculo_id = self._selected_object_id("Vehiculos")
+        if vehiculo_id is not None:
+            self._soft_delete_object(
+                "vehiculo",
+                lambda: self.vehiculo_repository.delete(vehiculo_id),
+                lambda: self._refresh_object_table("Vehiculos"),
+            )
+
+    def _create_peaje(self) -> None:
+        values = self._record_values("Crear peaje", self._peaje_fields())
+        if values is None:
+            return
+
+        def save() -> None:
+            self.peaje_repository.create(
+                nombre=str(values["nombre"]).strip(),
+                direccion=str(values["direccion"]).strip(),
+                costo=float(values["costo"]),
+            )
+            self._refresh_object_table("Peajes")
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Peaje creado.", save)
+
+    def _edit_peaje(self) -> None:
+        peaje_id = self._selected_object_id("Peajes")
+        if peaje_id is None:
+            return
+        peaje = self._find_by_id(self.peaje_repository.list_all(), peaje_id)
+        if peaje is None:
+            return
+        values = self._record_values(
+            "Editar peaje",
+            self._peaje_fields(
+                {
+                    "nombre": peaje.nombre,
+                    "direccion": peaje.direccion,
+                    "costo": peaje.costo,
+                }
+            ),
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.peaje_repository.update(
+                peaje_id,
+                nombre=str(values["nombre"]).strip(),
+                direccion=str(values["direccion"]).strip(),
+                costo=float(values["costo"]),
+            )
+            self._refresh_object_table("Peajes")
+            self._refresh_table()
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Peaje actualizado.", save)
+
+    def _delete_peaje(self) -> None:
+        peaje_id = self._selected_object_id("Peajes")
+        if peaje_id is not None:
+            self._soft_delete_object(
+                "peaje",
+                lambda: self.peaje_repository.delete(peaje_id),
+                lambda: self._refresh_object_table("Peajes"),
+            )
+
+    def _edit_viaje(self) -> None:
+        viaje_id = self._selected_viaje_id()
+        if viaje_id is None or self.table is None:
+            return
+
+        row = self.table.currentRow()
+        values = self._record_values(
+            "Editar viaje",
+            self._viaje_fields_from_row(row),
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.viaje_repository.update_basic(
+                viaje_id,
+                fecha=str(values["fecha"]),
+                observaciones=str(values["observaciones"]).strip(),
+                tarifa=float(values["tarifa"]),
+                fecha_descarga_tarifa=str(values["fecha_descarga_tarifa"]),
+                demora=float(values["demora"]),
+                fecha_descarga_demora=str(values["fecha_descarga_demora"]),
+                vacio=float(values["vacio"]),
+                estado=str(values["estado"]).strip(),
+            )
+            self._refresh_table()
+            self._refresh_metrics()
+
+        self._run_data_action("Viaje actualizado.", save)
+
+    def _delete_viaje(self) -> None:
+        viaje_id = self._selected_viaje_id()
+        if viaje_id is None:
+            return
+        if self._confirm_delete("viaje"):
+            self._run_data_action(
+                "Viaje eliminado.",
+                lambda: self._delete_viaje_and_refresh(viaje_id),
+            )
+
+    def _delete_viaje_and_refresh(self, viaje_id: int) -> None:
+        self.viaje_repository.delete(viaje_id)
+        self._refresh_table()
+        self._refresh_metrics()
+
+    def _soft_delete_object(
+        self,
+        label: str,
+        delete_callback: Callable[[], None],
+        refresh_callback: Callable[[], None],
+    ) -> None:
+        if not self._confirm_delete(label):
+            return
+
+        def delete_and_refresh() -> None:
+            delete_callback()
+            refresh_callback()
+            self._refresh_table()
+            self._refresh_viaje_form_options()
+
+        self._run_data_action(f"{label.title()} eliminado.", delete_and_refresh)
+
+    def _confirm_delete(self, label: str) -> bool:
+        response = QMessageBox.question(
+            self,
+            "Confirmar eliminacion",
+            f"Eliminar {label} seleccionado?",
+        )
+        return response == QMessageBox.StandardButton.Yes
+
+    def _cliente_fields(
+        self,
+        values: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        values = values or {}
+        return [
+            {"key": "nombre", "label": "Nombre", "value": values.get("nombre", "")},
+            {
+                "key": "domicilio_fiscal",
+                "label": "Domicilio fiscal",
+                "value": values.get("domicilio_fiscal", ""),
+                "required": False,
+            },
+            {
+                "key": "email",
+                "label": "Email",
+                "value": values.get("email", ""),
+                "required": False,
+            },
+            {
+                "key": "numero_contacto",
+                "label": "Numero contacto",
+                "value": values.get("numero_contacto", ""),
+                "required": False,
+            },
+        ]
+
+    def _lugar_fields(
+        self,
+        values: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        values = values or {}
+        return [
+            {"key": "nombre", "label": "Nombre", "value": values.get("nombre", "")},
+            {
+                "key": "direccion",
+                "label": "Direccion",
+                "value": values.get("direccion", ""),
+                "required": False,
+            },
+            {
+                "key": "observaciones",
+                "label": "Observaciones",
+                "type": "multiline",
+                "value": values.get("observaciones", ""),
+                "required": False,
+            },
+            {
+                "key": "roles",
+                "label": "Roles",
+                "type": "checks",
+                "value": values.get("roles", ()),
+                "options": [("Carga", "CARGA"), ("Descarga", "DESCARGA")],
+                "required": False,
+            },
+        ]
+
+    def _chofer_fields(
+        self,
+        values: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        values = values or {}
+        return [
+            {"key": "dni", "label": "DNI", "value": values.get("dni", "")},
+            {"key": "nombre", "label": "Nombre", "value": values.get("nombre", "")},
+            {"key": "apellido", "label": "Apellido", "value": values.get("apellido", "")},
+            {
+                "key": "numero_telefono",
+                "label": "Telefono",
+                "value": values.get("numero_telefono", ""),
+                "required": False,
+            },
+            {
+                "key": "fecha_vencimiento_registro",
+                "label": "Vencimiento registro",
+                "type": "date",
+                "value": values.get("fecha_vencimiento_registro", ""),
+            },
+        ]
+
+    def _tipo_carga_fields(
+        self,
+        values: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        values = values or {}
+        return [
+            {"key": "nombre", "label": "Nombre", "value": values.get("nombre", "")},
+            {
+                "key": "codigo",
+                "label": "Codigo interno",
+                "value": values.get("codigo", ""),
+            },
+        ]
+
+    def _vehiculo_fields(
+        self,
+        values: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        values = values or {}
+        return [
+            {
+                "key": "tipo",
+                "label": "Tipo",
+                "type": "combo",
+                "value": values.get("tipo", "CAMION"),
+                "options": [("Camion", "CAMION"), ("Semi", "SEMI")],
+            },
+            {
+                "key": "nombre_identificatorio",
+                "label": "Nombre identificatorio",
+                "value": values.get("nombre_identificatorio", ""),
+            },
+            {"key": "patente", "label": "Patente", "value": values.get("patente", "")},
+            {
+                "key": "observaciones",
+                "label": "Observaciones",
+                "type": "multiline",
+                "value": values.get("observaciones", ""),
+                "required": False,
+            },
+        ]
+
+    def _peaje_fields(
+        self,
+        values: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        values = values or {}
+        return [
+            {"key": "nombre", "label": "Nombre", "value": values.get("nombre", "")},
+            {
+                "key": "direccion",
+                "label": "Direccion",
+                "value": values.get("direccion", ""),
+                "required": False,
+            },
+            {
+                "key": "costo",
+                "label": "Costo",
+                "type": "money",
+                "value": values.get("costo", 0),
+            },
+        ]
+
+    def _viaje_fields_from_row(self, row: int) -> list[dict[str, object]]:
+        return [
+            {"key": "fecha", "label": "Fecha", "type": "date", "value": self._cell(row, 1)},
+            {
+                "key": "observaciones",
+                "label": "Observaciones",
+                "type": "multiline",
+                "value": self._cell(row, 6),
+                "required": False,
+            },
+            {
+                "key": "tarifa",
+                "label": "Tarifa",
+                "type": "money",
+                "value": self._money_from_display(self._cell(row, 11)),
+            },
+            {
+                "key": "fecha_descarga_tarifa",
+                "label": "F.Desc tarifa",
+                "type": "date",
+                "value": self._cell(row, 12),
+                "required": False,
+            },
+            {
+                "key": "demora",
+                "label": "Demora",
+                "type": "money",
+                "value": self._money_from_display(self._cell(row, 13)),
+            },
+            {
+                "key": "fecha_descarga_demora",
+                "label": "F.Desc demora",
+                "type": "date",
+                "value": self._cell(row, 14),
+                "required": False,
+            },
+            {
+                "key": "vacio",
+                "label": "Vacio",
+                "type": "money",
+                "value": self._money_from_display(self._cell(row, 15)),
+            },
+            {"key": "estado", "label": "Estado", "value": self._cell(row, 17)},
+        ]
+
+    def _find_by_id(self, items: list[object], item_id: int) -> object | None:
+        for item in items:
+            if getattr(item, "id", None) == item_id:
+                return item
+        return None
+
+    def _cell(self, row: int, column: int) -> str:
+        if self.table is None:
+            return ""
+        item = self.table.item(row, column)
+        return "" if item is None else item.text()
+
+    def _money_from_display(self, value: str) -> float:
+        clean = value.replace("$", "").replace(".", "").replace(",", ".").strip()
+        return float(clean or 0)
 
     def _save_viaje(self) -> None:
         try:
@@ -857,13 +1684,77 @@ class MainWindow(QMainWindow):
             combo.addItem(label, value)
         return combo
 
-    def _build_lugar_combo(self, rol: str) -> QComboBox:
+    def _build_tipo_carga_combo(self) -> QComboBox:
+        items = [
+            (item.nombre, item.codigo)
+            for item in self.tipo_carga_repository.list_all()
+        ]
+        if not items:
+            items = [("General", "GENERAL"), ("Carga peligrosa", "PELIGROSA")]
+        return self._build_combo(items)
+
+    def _refresh_viaje_form_options(self) -> None:
+        combo_sources = {
+            "cliente": [(item.nombre, item.id) for item in self.cliente_repository.list_all()],
+            "carga": [
+                (item.codigo_contenedor, item.id)
+                for item in self.carga_repository.list_all()
+            ],
+            "lugar_carga": self._lugar_options("CARGA"),
+            "lugar_descarga": self._lugar_options("DESCARGA"),
+            "chofer": [
+                (f"{item.nombre_completo} - DNI {item.dni}", item.id)
+                for item in self.chofer_repository.list_all()
+            ],
+            "tipo_carga": [
+                (item.nombre, item.codigo)
+                for item in self.tipo_carga_repository.list_all()
+            ],
+            "camion": [
+                (item.etiqueta, item.id)
+                for item in self.vehiculo_repository.list_all("CAMION")
+            ],
+            "semi": [("Sin semi", None)]
+            + [
+                (item.etiqueta, item.id)
+                for item in self.vehiculo_repository.list_all("SEMI")
+            ],
+        }
+        if not combo_sources["tipo_carga"]:
+            combo_sources["tipo_carga"] = [
+                ("General", "GENERAL"),
+                ("Carga peligrosa", "PELIGROSA"),
+            ]
+
+        for key, items in combo_sources.items():
+            widget = self.form_widgets.get(key)
+            if isinstance(widget, QComboBox):
+                widget.clear()
+                for label, value in items:
+                    widget.addItem(label, value)
+
+        peajes = self.form_widgets.get("peajes")
+        if isinstance(peajes, QListWidget):
+            peajes.clear()
+            for item in self.peaje_repository.list_all():
+                peaje_item = QListWidgetItem(
+                    f"{item.nombre} - {_format_money(item.costo)}"
+                )
+                peaje_item.setFlags(
+                    peaje_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+                )
+                peaje_item.setCheckState(Qt.CheckState.Unchecked)
+                peaje_item.setData(Qt.ItemDataRole.UserRole, item.id)
+                peajes.addItem(peaje_item)
+
+    def _lugar_options(self, rol: str) -> list[tuple[str, object]]:
         roles = self.lugar_repository.list_roles(rol)
         if roles:
-            return self._build_combo([(item.lugar, item.lugar_id) for item in roles])
-        return self._build_combo(
-            [(item.nombre, item.id) for item in self.lugar_repository.list_all()]
-        )
+            return [(item.lugar, item.lugar_id) for item in roles]
+        return [(item.nombre, item.id) for item in self.lugar_repository.list_all()]
+
+    def _build_lugar_combo(self, rol: str) -> QComboBox:
+        return self._build_combo(self._lugar_options(rol))
 
     def _money_input(self) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
@@ -918,6 +1809,112 @@ class MainWindow(QMainWindow):
             if item.checkState() == Qt.CheckState.Checked:
                 peaje_ids.append(int(item.data(Qt.ItemDataRole.UserRole)))
         return tuple(peaje_ids)
+
+
+class RecordDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget,
+        title: str,
+        fields: list[dict[str, object]],
+    ) -> None:
+        super().__init__(parent)
+        self.fields = fields
+        self.widgets: dict[str, QWidget] = {}
+        self.check_groups: dict[str, list[tuple[QCheckBox, object]]] = {}
+
+        self.setWindowTitle(title)
+        self.setMinimumWidth(420)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(10)
+
+        for field in fields:
+            key = str(field["key"])
+            label = str(field["label"])
+            field_type = str(field.get("type", "text"))
+            value = field.get("value", "")
+
+            if field_type == "date":
+                widget = QDateEdit()
+                widget.setCalendarPopup(True)
+                widget.setDisplayFormat("yyyy-MM-dd")
+                date = QDate.fromString(str(value), "yyyy-MM-dd")
+                widget.setDate(date if date.isValid() else QDate.currentDate())
+            elif field_type == "money":
+                widget = QDoubleSpinBox()
+                widget.setRange(0, 999_999_999)
+                widget.setDecimals(2)
+                widget.setSingleStep(1000)
+                widget.setPrefix("$ ")
+                widget.setValue(float(value or 0))
+            elif field_type == "combo":
+                widget = QComboBox()
+                for option_label, option_value in field.get("options", []):
+                    widget.addItem(str(option_label), option_value)
+                selected = field.get("value")
+                index = widget.findData(selected)
+                if index >= 0:
+                    widget.setCurrentIndex(index)
+            elif field_type == "multiline":
+                widget = QTextEdit()
+                widget.setFixedHeight(84)
+                widget.setPlainText(str(value or ""))
+            elif field_type == "checks":
+                widget = QWidget()
+                check_layout = QHBoxLayout(widget)
+                check_layout.setContentsMargins(0, 0, 0, 0)
+                check_layout.setSpacing(12)
+                selected_values = set(value or ())
+                checks: list[tuple[QCheckBox, object]] = []
+                for option_label, option_value in field.get("options", []):
+                    check = QCheckBox(str(option_label))
+                    check.setChecked(option_value in selected_values)
+                    check_layout.addWidget(check)
+                    checks.append((check, option_value))
+                check_layout.addStretch()
+                self.check_groups[key] = checks
+            else:
+                widget = QLineEdit()
+                widget.setText(str(value or ""))
+
+            self.widgets[key] = widget
+            form.addRow(label, widget)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+    def values(self) -> dict[str, object]:
+        values: dict[str, object] = {}
+        for field in self.fields:
+            key = str(field["key"])
+            widget = self.widgets[key]
+            if key in self.check_groups:
+                values[key] = tuple(
+                    option_value
+                    for check, option_value in self.check_groups[key]
+                    if check.isChecked()
+                )
+            elif isinstance(widget, QLineEdit):
+                values[key] = widget.text().strip()
+            elif isinstance(widget, QTextEdit):
+                values[key] = widget.toPlainText().strip()
+            elif isinstance(widget, QDateEdit):
+                values[key] = widget.date().toString("yyyy-MM-dd")
+            elif isinstance(widget, QDoubleSpinBox):
+                values[key] = float(widget.value())
+            elif isinstance(widget, QComboBox):
+                values[key] = widget.currentData()
+        return values
 
 
 class MetricCard(QFrame):

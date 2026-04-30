@@ -80,6 +80,14 @@ class Peaje:
 
 
 @dataclass(frozen=True)
+class TipoCarga:
+    id: int
+    codigo: str
+    nombre: str
+    activo: bool
+
+
+@dataclass(frozen=True)
 class ViajeResumen:
     id: int
     fecha: str

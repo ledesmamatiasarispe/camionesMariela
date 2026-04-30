@@ -77,6 +77,14 @@ CREATE TABLE IF NOT EXISTS peajes (
     creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS tipos_carga (
+    id INTEGER PRIMARY KEY,
+    codigo TEXT NOT NULL UNIQUE,
+    nombre TEXT NOT NULL,
+    activo INTEGER NOT NULL DEFAULT 1,
+    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS viajes (
     id INTEGER PRIMARY KEY,
     fecha TEXT NOT NULL DEFAULT '',
@@ -87,8 +95,7 @@ CREATE TABLE IF NOT EXISTS viajes (
     chofer_id INTEGER NOT NULL,
     camion_id INTEGER NOT NULL,
     semi_id INTEGER,
-    tipo_carga TEXT NOT NULL DEFAULT 'GENERAL'
-        CHECK (tipo_carga IN ('GENERAL', 'PELIGROSA')),
+    tipo_carga TEXT NOT NULL DEFAULT 'GENERAL',
     tarifa NUMERIC NOT NULL DEFAULT 0,
     fecha_descarga_tarifa TEXT,
     demora NUMERIC NOT NULL DEFAULT 0,
@@ -140,6 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_vehiculos_tipo ON vehiculos(tipo);
 CREATE INDEX IF NOT EXISTS idx_vehiculos_nombre_identificatorio
     ON vehiculos(nombre_identificatorio);
 CREATE INDEX IF NOT EXISTS idx_peajes_nombre ON peajes(nombre);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tipos_carga_codigo ON tipos_carga(codigo);
 CREATE INDEX IF NOT EXISTS idx_viaje_peajes_viaje_id ON viaje_peajes(viaje_id);
 CREATE INDEX IF NOT EXISTS idx_viaje_peajes_peaje_id ON viaje_peajes(peaje_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_cliente_id ON viajes(cliente_id);
@@ -240,6 +248,10 @@ INSERT OR IGNORE INTO peajes (id, nombre, direccion, costo) VALUES
     (2, 'Peaje Ruta Sur', 'Direccion pendiente', 22000),
     (3, 'Peaje Acceso Puerto', 'Direccion pendiente', 9000);
 
+INSERT OR IGNORE INTO tipos_carga (id, codigo, nombre) VALUES
+    (1, 'GENERAL', 'General'),
+    (2, 'PELIGROSA', 'Carga peligrosa');
+
 INSERT OR IGNORE INTO viajes (
     id,
     fecha,
@@ -304,6 +316,8 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
         _migrate_viaje_fecha(connection)
         _migrate_viaje_fechas_descarga(connection)
         _migrate_tipo_carga(connection)
+        _migrate_tipos_carga(connection)
+        _migrate_viajes_tipo_carga_dynamic(connection)
         _migrate_peajes_from_viajes(connection)
         _migrate_lugar_roles_from_viajes(connection)
         connection.executescript(POST_MIGRATION_SQL)
@@ -506,8 +520,7 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             chofer_id INTEGER NOT NULL,
             camion_id INTEGER NOT NULL,
             semi_id INTEGER,
-            tipo_carga TEXT NOT NULL DEFAULT 'GENERAL'
-                CHECK (tipo_carga IN ('GENERAL', 'PELIGROSA')),
+            tipo_carga TEXT NOT NULL DEFAULT 'GENERAL',
             tarifa NUMERIC NOT NULL DEFAULT 0,
             fecha_descarga_tarifa TEXT,
             demora NUMERIC NOT NULL DEFAULT 0,
@@ -660,6 +673,140 @@ def _migrate_tipo_carga(connection: sqlite3.Connection) -> None:
         END
         """
     )
+
+
+def _migrate_tipos_carga(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tipos_carga (
+            id INTEGER PRIMARY KEY,
+            codigo TEXT NOT NULL UNIQUE,
+            nombre TEXT NOT NULL,
+            activo INTEGER NOT NULL DEFAULT 1,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO tipos_carga (id, codigo, nombre)
+        VALUES
+            (1, 'GENERAL', 'General'),
+            (2, 'PELIGROSA', 'Carga peligrosa')
+        """
+    )
+
+
+def _migrate_viajes_tipo_carga_dynamic(connection: sqlite3.Connection) -> None:
+    row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'viajes'"
+    ).fetchone()
+    if row is None or "CHECK (tipo_carga IN" not in (row[0] or ""):
+        return
+
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute("DROP TABLE IF EXISTS viaje_peajes_legacy")
+    connection.execute(
+        """
+        CREATE TEMP TABLE viaje_peajes_legacy AS
+        SELECT viaje_id, peaje_id, creado_en
+        FROM viaje_peajes
+        """
+    )
+    connection.execute("DROP TABLE IF EXISTS viaje_peajes")
+    connection.execute("ALTER TABLE viajes RENAME TO viajes_tipo_carga_legacy")
+    connection.execute(
+        """
+        CREATE TABLE viajes (
+            id INTEGER PRIMARY KEY,
+            fecha TEXT NOT NULL DEFAULT '',
+            cliente_id INTEGER NOT NULL,
+            carga_id INTEGER NOT NULL,
+            lugar_carga_id INTEGER NOT NULL,
+            lugar_descarga_id INTEGER NOT NULL,
+            chofer_id INTEGER NOT NULL,
+            camion_id INTEGER NOT NULL,
+            semi_id INTEGER,
+            tipo_carga TEXT NOT NULL DEFAULT 'GENERAL',
+            tarifa NUMERIC NOT NULL DEFAULT 0,
+            fecha_descarga_tarifa TEXT,
+            demora NUMERIC NOT NULL DEFAULT 0,
+            fecha_descarga_demora TEXT,
+            vacio NUMERIC NOT NULL DEFAULT 0,
+            peajes NUMERIC NOT NULL DEFAULT 0,
+            observaciones TEXT,
+            estado TEXT NOT NULL DEFAULT 'Programado',
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (cliente_id) REFERENCES clientes(id),
+            FOREIGN KEY (carga_id) REFERENCES cargas(id),
+            FOREIGN KEY (lugar_carga_id) REFERENCES lugares(id),
+            FOREIGN KEY (lugar_descarga_id) REFERENCES lugares(id),
+            FOREIGN KEY (chofer_id) REFERENCES choferes(id),
+            FOREIGN KEY (camion_id) REFERENCES vehiculos(id),
+            FOREIGN KEY (semi_id) REFERENCES vehiculos(id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO viajes (
+            id,
+            fecha,
+            cliente_id,
+            carga_id,
+            lugar_carga_id,
+            lugar_descarga_id,
+            chofer_id,
+            camion_id,
+            semi_id,
+            tipo_carga,
+            tarifa,
+            fecha_descarga_tarifa,
+            demora,
+            fecha_descarga_demora,
+            vacio,
+            peajes,
+            observaciones,
+            estado,
+            creado_en,
+            actualizado_en
+        )
+        SELECT
+            id,
+            fecha,
+            cliente_id,
+            carga_id,
+            lugar_carga_id,
+            lugar_descarga_id,
+            chofer_id,
+            camion_id,
+            semi_id,
+            tipo_carga,
+            tarifa,
+            fecha_descarga_tarifa,
+            demora,
+            fecha_descarga_demora,
+            vacio,
+            peajes,
+            observaciones,
+            estado,
+            creado_en,
+            actualizado_en
+        FROM viajes_tipo_carga_legacy
+        """
+    )
+    connection.execute("DROP TABLE viajes_tipo_carga_legacy")
+    _create_viaje_peajes_table(connection)
+    connection.execute(
+        """
+        INSERT INTO viaje_peajes (viaje_id, peaje_id, creado_en)
+        SELECT viaje_id, peaje_id, creado_en
+        FROM viaje_peajes_legacy
+        """
+    )
+    connection.execute("DROP TABLE viaje_peajes_legacy")
+    connection.execute("PRAGMA foreign_keys = ON")
 
 
 def _migrate_peajes_from_viajes(connection: sqlite3.Connection) -> None:

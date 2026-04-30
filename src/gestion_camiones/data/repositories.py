@@ -11,6 +11,7 @@ from gestion_camiones.data.models import (
     Lugar,
     LugarRol,
     Peaje,
+    TipoCarga,
     Vehiculo,
     ViajeCreate,
     ViajeResumen,
@@ -32,10 +33,7 @@ class ViajeRepository:
                 lugar_descarga.nombre AS lugar_descarga,
                 COALESCE(viajes.observaciones, '') AS observaciones,
                 trim(choferes.nombre || ' ' || choferes.apellido) AS chofer,
-                CASE viajes.tipo_carga
-                    WHEN 'PELIGROSA' THEN 'Carga peligrosa'
-                    ELSE 'General'
-                END AS tipo_carga,
+                COALESCE(tipos_carga.nombre, viajes.tipo_carga) AS tipo_carga,
                 camion.nombre_identificatorio || ' - ' || camion.patente AS camion,
                 COALESCE(semi.nombre_identificatorio || ' - ' || semi.patente, '') AS semi,
                 viajes.tarifa,
@@ -63,6 +61,7 @@ class ViajeRepository:
                 ON camion.id = viajes.camion_id AND camion.tipo = 'CAMION'
             LEFT JOIN vehiculos AS semi
                 ON semi.id = viajes.semi_id AND semi.tipo = 'SEMI'
+            LEFT JOIN tipos_carga ON tipos_carga.codigo = viajes.tipo_carga
         """
         params: tuple[str, ...] = ()
         if search.strip():
@@ -186,6 +185,55 @@ class ViajeRepository:
             connection.commit()
             return viaje_id
 
+    def update_basic(
+        self,
+        viaje_id: int,
+        *,
+        fecha: str,
+        observaciones: str,
+        tarifa: float,
+        fecha_descarga_tarifa: str,
+        demora: float,
+        fecha_descarga_demora: str,
+        vacio: float,
+        estado: str,
+    ) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE viajes
+                SET
+                    fecha = ?,
+                    observaciones = ?,
+                    tarifa = ?,
+                    fecha_descarga_tarifa = ?,
+                    demora = ?,
+                    fecha_descarga_demora = ?,
+                    vacio = ?,
+                    estado = ?,
+                    actualizado_en = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    fecha,
+                    observaciones,
+                    tarifa,
+                    fecha_descarga_tarifa,
+                    demora,
+                    fecha_descarga_demora,
+                    vacio,
+                    estado,
+                    viaje_id,
+                ),
+            )
+            connection.commit()
+
+    def delete(self, viaje_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute("DELETE FROM viaje_peajes WHERE viaje_id = ?", (viaje_id,))
+            connection.execute("DELETE FROM viajes WHERE id = ?", (viaje_id,))
+            connection.commit()
+
     def dashboard_metrics(self) -> dict[str, int | float]:
         with closing(self._connect()) as connection:
             total = connection.execute("SELECT COUNT(*) FROM viajes").fetchone()[0]
@@ -274,6 +322,61 @@ class ClienteRepository:
             for row in rows
         ]
 
+    def create(
+        self,
+        *,
+        nombre: str,
+        domicilio_fiscal: str,
+        email: str,
+        numero_contacto: str,
+    ) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO clientes (
+                    nombre,
+                    domicilio_fiscal,
+                    email,
+                    numero_contacto
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (nombre, domicilio_fiscal, email, numero_contacto),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def update(
+        self,
+        cliente_id: int,
+        *,
+        nombre: str,
+        domicilio_fiscal: str,
+        email: str,
+        numero_contacto: str,
+    ) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE clientes
+                SET
+                    nombre = ?,
+                    domicilio_fiscal = ?,
+                    email = ?,
+                    numero_contacto = ?
+                WHERE id = ?
+                """,
+                (nombre, domicilio_fiscal, email, numero_contacto, cliente_id),
+            )
+            connection.commit()
+
+    def delete(self, cliente_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE clientes SET activo = 0 WHERE id = ?",
+                (cliente_id,),
+            )
+            connection.commit()
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
@@ -312,6 +415,28 @@ class CargaRepository:
             )
             for row in rows
         ]
+
+    def create(self, *, codigo_contenedor: str) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                "INSERT INTO cargas (codigo_contenedor) VALUES (?)",
+                (codigo_contenedor,),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def update(self, carga_id: int, *, codigo_contenedor: str) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE cargas SET codigo_contenedor = ? WHERE id = ?",
+                (codigo_contenedor, carga_id),
+            )
+            connection.commit()
+
+    def delete(self, carga_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute("UPDATE cargas SET activo = 0 WHERE id = ?", (carga_id,))
+            connection.commit()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
@@ -407,6 +532,86 @@ class LugarRepository:
             for row in rows
         ]
 
+    def create(
+        self,
+        *,
+        nombre: str,
+        direccion: str,
+        observaciones: str,
+        roles: tuple[str, ...],
+    ) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO lugares (nombre, direccion, observaciones)
+                VALUES (?, ?, ?)
+                """,
+                (nombre, direccion, observaciones),
+            )
+            lugar_id = int(cursor.lastrowid)
+            self._set_roles(connection, lugar_id, roles)
+            connection.commit()
+            return lugar_id
+
+    def update(
+        self,
+        lugar_id: int,
+        *,
+        nombre: str,
+        direccion: str,
+        observaciones: str,
+        roles: tuple[str, ...],
+    ) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE lugares
+                SET nombre = ?, direccion = ?, observaciones = ?
+                WHERE id = ?
+                """,
+                (nombre, direccion, observaciones, lugar_id),
+            )
+            self._set_roles(connection, lugar_id, roles)
+            connection.commit()
+
+    def delete(self, lugar_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE lugares SET activo = 0 WHERE id = ?",
+                (lugar_id,),
+            )
+            connection.execute(
+                "UPDATE lugar_roles SET activo = 0 WHERE lugar_id = ?",
+                (lugar_id,),
+            )
+            connection.commit()
+
+    def _set_roles(
+        self,
+        connection: sqlite3.Connection,
+        lugar_id: int,
+        roles: tuple[str, ...],
+    ) -> None:
+        normalized_roles = tuple(role for role in roles if role in {"CARGA", "DESCARGA"})
+        connection.execute(
+            "UPDATE lugar_roles SET activo = 0 WHERE lugar_id = ?",
+            (lugar_id,),
+        )
+        for role in normalized_roles:
+            connection.execute(
+                """
+                INSERT INTO lugar_roles (
+                    lugar_id,
+                    rol,
+                    valido_desde,
+                    valido_hasta,
+                    observaciones,
+                    activo
+                ) VALUES (?, ?, '', NULL, '', 1)
+                """,
+                (lugar_id, role),
+            )
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
@@ -453,6 +658,78 @@ class ChoferRepository:
             )
             for row in rows
         ]
+
+    def create(
+        self,
+        *,
+        dni: str,
+        nombre: str,
+        apellido: str,
+        numero_telefono: str,
+        fecha_vencimiento_registro: str,
+    ) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO choferes (
+                    dni,
+                    nombre,
+                    apellido,
+                    numero_telefono,
+                    fecha_vencimiento_registro
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    dni,
+                    nombre,
+                    apellido,
+                    numero_telefono,
+                    fecha_vencimiento_registro,
+                ),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def update(
+        self,
+        chofer_id: int,
+        *,
+        dni: str,
+        nombre: str,
+        apellido: str,
+        numero_telefono: str,
+        fecha_vencimiento_registro: str,
+    ) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE choferes
+                SET
+                    dni = ?,
+                    nombre = ?,
+                    apellido = ?,
+                    numero_telefono = ?,
+                    fecha_vencimiento_registro = ?
+                WHERE id = ?
+                """,
+                (
+                    dni,
+                    nombre,
+                    apellido,
+                    numero_telefono,
+                    fecha_vencimiento_registro,
+                    chofer_id,
+                ),
+            )
+            connection.commit()
+
+    def delete(self, chofer_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE choferes SET activo = 0 WHERE id = ?",
+                (chofer_id,),
+            )
+            connection.commit()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
@@ -511,6 +788,67 @@ class VehiculoRepository:
             for row in rows
         ]
 
+    def create(
+        self,
+        *,
+        tipo: str,
+        nombre_identificatorio: str,
+        patente: str,
+        observaciones: str,
+    ) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO vehiculos (
+                    tipo,
+                    nombre_identificatorio,
+                    patente,
+                    observaciones
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (tipo, nombre_identificatorio, patente, observaciones),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def update(
+        self,
+        vehiculo_id: int,
+        *,
+        tipo: str,
+        nombre_identificatorio: str,
+        patente: str,
+        observaciones: str,
+    ) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE vehiculos
+                SET
+                    tipo = ?,
+                    nombre_identificatorio = ?,
+                    patente = ?,
+                    observaciones = ?
+                WHERE id = ?
+                """,
+                (
+                    tipo,
+                    nombre_identificatorio,
+                    patente,
+                    observaciones,
+                    vehiculo_id,
+                ),
+            )
+            connection.commit()
+
+    def delete(self, vehiculo_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE vehiculos SET activo = 0 WHERE id = ?",
+                (vehiculo_id,),
+            )
+            connection.commit()
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
@@ -553,6 +891,118 @@ class PeajeRepository:
             )
             for row in rows
         ]
+
+    def create(self, *, nombre: str, direccion: str, costo: float) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO peajes (nombre, direccion, costo)
+                VALUES (?, ?, ?)
+                """,
+                (nombre, direccion, costo),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def update(
+        self,
+        peaje_id: int,
+        *,
+        nombre: str,
+        direccion: str,
+        costo: float,
+    ) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE peajes
+                SET nombre = ?, direccion = ?, costo = ?
+                WHERE id = ?
+                """,
+                (nombre, direccion, costo, peaje_id),
+            )
+            connection.commit()
+
+    def delete(self, peaje_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE peajes SET activo = 0 WHERE id = ?",
+                (peaje_id,),
+            )
+            connection.commit()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+
+class TipoCargaRepository:
+    def __init__(self, database_path: Path) -> None:
+        self.database_path = database_path
+
+    def list_all(self, include_inactive: bool = False) -> list[TipoCarga]:
+        query = """
+            SELECT
+                id,
+                codigo,
+                nombre,
+                activo
+            FROM tipos_carga
+        """
+        params: tuple[int, ...] = ()
+
+        if not include_inactive:
+            query += " WHERE activo = ?"
+            params = (1,)
+
+        query += " ORDER BY nombre"
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, params).fetchall()
+
+        return [
+            TipoCarga(
+                id=row["id"],
+                codigo=row["codigo"],
+                nombre=row["nombre"],
+                activo=bool(row["activo"]),
+            )
+            for row in rows
+        ]
+
+    def create(self, *, codigo: str, nombre: str) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO tipos_carga (codigo, nombre)
+                VALUES (?, ?)
+                """,
+                (codigo, nombre),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def update(self, tipo_carga_id: int, *, codigo: str, nombre: str) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE tipos_carga
+                SET codigo = ?, nombre = ?
+                WHERE id = ?
+                """,
+                (codigo, nombre, tipo_carga_id),
+            )
+            connection.commit()
+
+    def delete(self, tipo_carga_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE tipos_carga SET activo = 0 WHERE id = ?",
+                (tipo_carga_id,),
+            )
+            connection.commit()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)

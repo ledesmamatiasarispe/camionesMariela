@@ -141,6 +141,17 @@ Campos principales:
 - `viaje_id`
 - `peaje_id`
 
+### tipos_carga
+
+Guarda los tipos de carga disponibles para cargar viajes.
+
+Campos principales:
+
+- `id`
+- `codigo`
+- `nombre`
+- `activo`
+
 ## Tabla viajes
 
 Campos principales:

@@ -16,7 +16,8 @@
 - Filtros por fecha, estado, cliente, chofer, vehiculo y lugar.
 - Busqueda rapida.
 - Tarjetas de resumen operativo.
-- Botonera propia por seccion: Crear, Editar y Eliminar.
+- Botonera propia Crear, Editar y Eliminar en secciones de mantenimiento.
+- Sin botonera Crear, Editar y Eliminar en Cargar viaje, Estadisticas y Opciones.
 
 ## Formularios
 

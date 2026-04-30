@@ -44,11 +44,14 @@ debe mostrarse una segunda fila de botones arriba del contenido.
 El boton superior `Nuevo viaje` solo debe mostrarse dentro de `Cargar viaje`.
 En el resto de las secciones, las acciones se resuelven dentro de cada pantalla.
 
-Cada seccion debe tener su propia botonera operativa:
+Las secciones de mantenimiento, excepto `Cargar viaje`, `Estadisticas` y
+`Opciones`, deben tener su propia botonera operativa:
 
 - Crear.
 - Editar.
 - Eliminar.
+
+La seccion `Cargar viaje` debe tener solo la accion de guardar el viaje cargado.
 
 La primera seccion es `Cargar viaje`. Debe pedir los datos del viaje en el mismo
 orden operativo definido por la planilla:
