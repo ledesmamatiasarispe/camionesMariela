@@ -20,7 +20,8 @@ Sera una app cliente sin servidor. El funcionamiento normal no debe depender de 
 - Registrar un viaje nuevo.
 - Registrar la fecha principal del viaje.
 - Relacionar cliente, carga, lugar de carga, lugar de descarga, chofer, camion y semi.
-- Gestionar cargas como codigos largos de contenedor.
+- Gestionar cargas como codigos largos de contenedor, ingresables desde el
+  formulario de viaje cuando el cliente provee un codigo nuevo.
 - Registrar tipo de carga como general o carga peligrosa.
 - Gestionar lugares con nombre, direccion, observaciones y roles variables de carga/descarga.
 - Gestionar clientes como objetos con domicilio fiscal, email y numero de contacto.

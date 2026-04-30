@@ -307,6 +307,11 @@ class MainWindow(QMainWindow):
                 for item in self.carga_repository.list_all()
             ]
         )
+        carga.setEditable(True)
+        carga.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        if carga.lineEdit() is not None:
+            carga.lineEdit().setPlaceholderText("Codigo provisto por el cliente")
+
         lugar_carga = self._build_lugar_combo("CARGA")
         lugar_descarga = self._build_lugar_combo("DESCARGA")
 
@@ -1590,6 +1595,7 @@ class MainWindow(QMainWindow):
             return
 
         QMessageBox.information(self, "Viaje guardado", "El viaje se cargo correctamente.")
+        self._refresh_viaje_form_options()
         self._refresh_table()
         self._refresh_metrics()
         self._clear_viaje_form()
@@ -1604,25 +1610,33 @@ class MainWindow(QMainWindow):
         fecha_descarga_tarifa = self._date_value("fecha_descarga_tarifa")
         fecha_descarga_demora = self._date_value("fecha_descarga_demora")
         fecha_descarga_vacio = self._date_value("fecha_descarga_vacio")
+        cliente_id = self._required_combo_int("cliente")
+        lugar_carga_id = self._required_combo_int("lugar_carga")
+        lugar_descarga_id = self._required_combo_int("lugar_descarga")
+        chofer_id = self._required_combo_int("chofer")
+        camion_id = self._required_combo_int("camion")
+        semi_id = self._optional_combo_int("semi")
+        peaje_ids = self._checked_peaje_ids()
+        carga_id = self._carga_id_from_form()
 
         return ViajeCreate(
             fecha=fecha,
-            cliente_id=self._required_combo_int("cliente"),
-            carga_id=self._required_combo_int("carga"),
-            lugar_carga_id=self._required_combo_int("lugar_carga"),
-            lugar_descarga_id=self._required_combo_int("lugar_descarga"),
+            cliente_id=cliente_id,
+            carga_id=carga_id,
+            lugar_carga_id=lugar_carga_id,
+            lugar_descarga_id=lugar_descarga_id,
             observaciones=self._text_value("observaciones"),
-            chofer_id=self._required_combo_int("chofer"),
+            chofer_id=chofer_id,
             tipo_carga=str(self._combo_value("tipo_carga") or "GENERAL"),
-            camion_id=self._required_combo_int("camion"),
-            semi_id=self._optional_combo_int("semi"),
+            camion_id=camion_id,
+            semi_id=semi_id,
             tarifa=self._money_value("tarifa"),
             fecha_descarga_tarifa=fecha_descarga_tarifa,
             demora=self._money_value("demora"),
             fecha_descarga_demora=fecha_descarga_demora,
             vacio=self._money_value("vacio"),
             fecha_descarga_vacio=fecha_descarga_vacio,
-            peaje_ids=self._checked_peaje_ids(),
+            peaje_ids=peaje_ids,
         )
 
     def _clear_viaje_form(self) -> None:
@@ -1634,6 +1648,10 @@ class MainWindow(QMainWindow):
         observaciones = self.form_widgets["observaciones"]
         if isinstance(observaciones, QTextEdit):
             observaciones.clear()
+
+        carga = self.form_widgets["carga"]
+        if isinstance(carga, QComboBox) and carga.isEditable():
+            carga.setCurrentText("")
 
         for key in (
             "fecha",
@@ -1753,9 +1771,12 @@ class MainWindow(QMainWindow):
         for key, items in combo_sources.items():
             widget = self.form_widgets.get(key)
             if isinstance(widget, QComboBox):
+                was_editable = widget.isEditable()
                 widget.clear()
                 for label, value in items:
                     widget.addItem(label, value)
+                if was_editable:
+                    widget.setCurrentText("")
 
         peajes = self.form_widgets.get("peajes")
         if isinstance(peajes, QListWidget):
@@ -1799,6 +1820,23 @@ class MainWindow(QMainWindow):
         if value is None:
             raise ValueError("Faltan datos obligatorios del viaje.")
         return int(value)
+
+    def _carga_id_from_form(self) -> int:
+        widget = self.form_widgets["carga"]
+        if not isinstance(widget, QComboBox):
+            raise ValueError("Campo de carga invalido.")
+
+        codigo = widget.currentText().strip()
+        if not codigo:
+            raise ValueError("Completa el codigo de carga provisto por el cliente.")
+
+        selected_text = widget.itemText(widget.currentIndex()).strip()
+        selected_id = widget.currentData()
+        if selected_id is not None and codigo == selected_text:
+            return int(selected_id)
+
+        carga_id = self.carga_repository.get_or_create(codigo_contenedor=codigo)
+        return carga_id
 
     def _optional_combo_int(self, key: str) -> int | None:
         value = self._combo_value(key)

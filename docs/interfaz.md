@@ -58,7 +58,7 @@ orden operativo definido por la planilla:
 
 - Fecha.
 - Cliente.
-- Carga.
+- Carga editable para ingresar el codigo provisto por el cliente.
 - Lugar de carga.
 - Lugar de descarga.
 - Observaciones.

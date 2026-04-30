@@ -25,7 +25,8 @@
 - El formulario de alta de viaje es la primera pestana de la app.
 - Alta/edicion de clientes, cargas, lugares, choferes y vehiculos.
 - Datos de cliente: nombre, domicilio fiscal, email y numero de contacto.
-- Datos de carga: codigo largo identificatorio del contenedor.
+- Datos de carga: codigo largo identificatorio del contenedor, editable al
+  cargar el viaje.
 - Tipo de carga: general o carga peligrosa.
 - Datos de lugar: nombre, direccion, observaciones y roles con vigencia.
 - Datos de chofer: DNI, nombre, apellido, telefono y vencimiento de registro.

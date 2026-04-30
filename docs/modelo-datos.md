@@ -59,6 +59,10 @@ Campos principales:
 
 Guarda el codigo largo que identifica a cada contenedor.
 
+En la carga de viaje, el operador puede escribir el codigo provisto por el
+cliente. Si ese codigo todavia no existe, la aplicacion lo registra
+automaticamente como nueva carga.
+
 Campos principales:
 
 - `id`
@@ -240,6 +244,9 @@ Campos iniciales:
 - `codigo_contenedor`: codigo largo que identifica al contenedor.
 
 En `viajes` se guarda `carga_id`, para mantener la relacion con el contenedor sin repetir el codigo en cada viaje.
+
+El campo `Carga` del formulario de viaje es editable: permite elegir una carga
+existente o ingresar manualmente un codigo nuevo informado por el cliente.
 
 ## Objeto lugar
 

@@ -431,6 +431,36 @@ class CargaRepository:
             connection.commit()
             return int(cursor.lastrowid)
 
+    def get_or_create(self, *, codigo_contenedor: str) -> int:
+        codigo = codigo_contenedor.strip()
+        if not codigo:
+            raise ValueError("El codigo de carga es obligatorio.")
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT id, activo
+                FROM cargas
+                WHERE codigo_contenedor = ?
+                """,
+                (codigo,),
+            ).fetchone()
+            if row is not None:
+                if not row["activo"]:
+                    connection.execute(
+                        "UPDATE cargas SET activo = 1 WHERE id = ?",
+                        (row["id"],),
+                    )
+                    connection.commit()
+                return int(row["id"])
+
+            cursor = connection.execute(
+                "INSERT INTO cargas (codigo_contenedor) VALUES (?)",
+                (codigo,),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
     def update(self, carga_id: int, *, codigo_contenedor: str) -> None:
         with closing(self._connect()) as connection:
             connection.execute(
