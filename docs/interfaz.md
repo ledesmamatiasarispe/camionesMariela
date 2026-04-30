@@ -20,9 +20,33 @@ PySide6 permite crear:
 - Dialogos de confirmacion.
 - Pantallas compatibles con Windows y macOS.
 
-## Pantalla inicial
+## Navegacion por pestanas
 
-La primera pantalla debe funcionar como tablero operativo:
+La interfaz principal se organiza por pestanas.
+
+La primera pestana debe ser `Cargar viaje`. Debe pedir los datos del viaje en el
+mismo orden operativo definido por la planilla:
+
+- Fecha.
+- Cliente.
+- Carga.
+- Lugar de carga.
+- Lugar de descarga.
+- Observaciones.
+- Chofer.
+- Tipo de carga.
+- Camion.
+- Semi.
+- Tarifa.
+- Fecha de descarga asociada a tarifa.
+- Demora.
+- Fecha de descarga asociada a demora.
+- Vacio.
+- Peajes.
+
+## Tablero operativo
+
+La segunda pestana debe funcionar como tablero operativo:
 
 - Resumen de viajes.
 - Indicadores principales.

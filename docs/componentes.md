@@ -3,7 +3,8 @@
 ## Navegacion
 
 - App shell con barra lateral.
-- Items: Tablero, Viajes, Clientes, Choferes, Vehiculos, Reportes.
+- Pestanas principales: Cargar viaje y Tablero.
+- Items laterales: Cargar viaje, Tablero, Viajes, Clientes, Choferes y Vehiculos.
 
 ## Datos
 
@@ -15,6 +16,7 @@
 ## Formularios
 
 - Alta/edicion de viaje.
+- El formulario de alta de viaje es la primera pestana de la app.
 - Alta/edicion de clientes, cargas, lugares, choferes y vehiculos.
 - Datos de cliente: nombre, domicilio fiscal, email y numero de contacto.
 - Datos de carga: codigo largo identificatorio del contenedor.

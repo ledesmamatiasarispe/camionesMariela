@@ -15,12 +15,12 @@
         </div>
         <nav>
           <ul class="nav-list">
-            <li><a class="nav-link active" href="#">Tablero</a></li>
+            <li><a class="nav-link active" href="#">Cargar viaje</a></li>
+            <li><a class="nav-link" href="#">Tablero</a></li>
             <li><a class="nav-link" href="#">Viajes</a></li>
             <li><a class="nav-link" href="#">Clientes</a></li>
             <li><a class="nav-link" href="#">Choferes</a></li>
             <li><a class="nav-link" href="#">Vehiculos</a></li>
-            <li><a class="nav-link" href="#">Reportes</a></li>
           </ul>
         </nav>
       </aside>
@@ -28,23 +28,122 @@
       <main class="main">
         <header class="topbar">
           <div class="page-title">
-            <h1>Tablero operativo</h1>
-            <p>Resumen de viajes e importes cobrados al cliente.</p>
+            <h1>Cargar viaje</h1>
+            <p>Alta de viaje con cliente, carga, lugares, chofer, vehiculos e importes.</p>
           </div>
           <div class="toolbar" aria-label="Acciones del tablero">
-            <input class="search-input" type="search" placeholder="Buscar cliente, chofer o vehiculo">
-            <select class="filter-select" aria-label="Filtrar por estado">
-              <option>Todos los estados</option>
-              <option>Programado</option>
-              <option>En viaje</option>
-              <option>Finalizado</option>
-              <option>Observado</option>
-            </select>
-            <button class="primary" type="button">Nuevo viaje</button>
+            <button class="primary" type="button">Guardar viaje</button>
           </div>
         </header>
 
         <section class="content">
+          <div class="tabs" aria-label="Pestanas principales">
+            <button class="tab active" type="button">Cargar viaje</button>
+            <button class="tab" type="button">Tablero</button>
+          </div>
+
+          <section class="panel" aria-labelledby="cargar-viaje-title">
+            <div class="panel-header">
+              <h2 id="cargar-viaje-title">Datos del viaje</h2>
+            </div>
+            <form class="travel-form">
+              <label class="field">
+                <span>Fecha</span>
+                <input type="date" value="2026-04-30">
+              </label>
+              <label class="field">
+                <span>Cliente</span>
+                <select>
+                  <option>Romero e hijos</option>
+                  <option>Cliente Sur</option>
+                  <option>Proveedor Norte</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Carga</span>
+                <input type="text" value="CONT-00000000000000000001">
+              </label>
+              <label class="field">
+                <span>Lugar carga</span>
+                <select>
+                  <option>Deposito norte</option>
+                  <option>Planta principal</option>
+                  <option>Puerto</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>L.Descarga</span>
+                <select>
+                  <option>Planta principal</option>
+                  <option>Cliente Sur</option>
+                </select>
+              </label>
+              <label class="field field-wide">
+                <span>Observaciones</span>
+                <textarea rows="3">Control pendiente</textarea>
+              </label>
+              <label class="field">
+                <span>Chofer</span>
+                <select>
+                  <option>Juan Perez - DNI 20123456</option>
+                  <option>Carlos Gomez - DNI 24987654</option>
+                  <option>Miguel Silva - DNI 28765432</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>T.Carga</span>
+                <select>
+                  <option>General</option>
+                  <option>Carga peligrosa</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Camion</span>
+                <select>
+                  <option>Tractor principal - AB123CD</option>
+                  <option>Unidad norte - AE456FG</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Semi</span>
+                <select>
+                  <option>Semi batea - AA111BB</option>
+                  <option>Semi playo - AC222DD</option>
+                  <option>Sin semi</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Tarifa</span>
+                <input type="number" value="120000" min="0">
+              </label>
+              <label class="field">
+                <span>F.Desc tarifa</span>
+                <input type="date" value="2026-04-30">
+              </label>
+              <label class="field">
+                <span>Demora</span>
+                <input type="number" value="0" min="0">
+              </label>
+              <label class="field">
+                <span>F.Desc demora</span>
+                <input type="date">
+              </label>
+              <label class="field">
+                <span>Vacio</span>
+                <input type="number" value="0" min="0">
+              </label>
+              <fieldset class="field field-wide checks">
+                <legend>Peajes</legend>
+                <label><input type="checkbox" checked> Peaje Autopista Norte - $ 15.000</label>
+                <label><input type="checkbox"> Peaje Ruta Sur - $ 22.000</label>
+                <label><input type="checkbox"> Peaje Acceso Puerto - $ 9.000</label>
+              </fieldset>
+              <div class="form-actions">
+                <button class="primary" type="button">Guardar viaje</button>
+              </div>
+            </form>
+          </section>
+
           <div class="metrics" aria-label="Indicadores">
             <article class="metric">
               <span>Viajes cargados</span>
@@ -77,10 +176,12 @@
               <table>
                 <thead>
                   <tr>
+                    <th>Fecha</th>
                     <th>Cliente</th>
                     <th>Carga</th>
                     <th>Lugar carga</th>
                     <th>L.Descarga</th>
+                    <th>Observaciones</th>
                     <th>Chofer</th>
                     <th>T.Carga</th>
                     <th>Camion</th>
@@ -89,6 +190,7 @@
                     <th>F.Desc tarifa</th>
                     <th>Demora $</th>
                     <th>F.Desc demora</th>
+                    <th>Vacio $</th>
                     <th>Peajes $</th>
                     <th>Estado</th>
                     <th>Accion</th>
@@ -96,10 +198,12 @@
                 </thead>
                 <tbody>
                   <tr>
+                    <td>2026-04-30</td>
                     <td>Romero e hijos</td>
                     <td>CONT-00000000000000000001</td>
                     <td>Deposito norte</td>
                     <td>Planta principal</td>
+                    <td>Control pendiente</td>
                     <td>Juan Perez</td>
                     <td>General</td>
                     <td>Tractor principal - AB123CD</td>
@@ -108,15 +212,18 @@
                     <td>2026-04-30</td>
                     <td>$ 0</td>
                     <td></td>
+                    <td>$ 0</td>
                     <td>$ 15.000</td>
                     <td><span class="status info">Programado</span></td>
                     <td><button type="button">Ver</button></td>
                   </tr>
                   <tr>
+                    <td>2026-04-30</td>
                     <td>Cliente Sur</td>
                     <td>CONT-00000000000000000002</td>
                     <td>Planta principal</td>
                     <td>Cliente Sur</td>
+                    <td>Demora informada</td>
                     <td>Carlos Gomez</td>
                     <td>Carga peligrosa</td>
                     <td>Unidad norte - AE456FG</td>
@@ -125,15 +232,18 @@
                     <td>2026-04-30</td>
                     <td>$ 25.000</td>
                     <td></td>
+                    <td>$ 10.000</td>
                     <td>$ 22.000</td>
                     <td><span class="status warning">En viaje</span></td>
                     <td><button type="button">Ver</button></td>
                   </tr>
                   <tr>
+                    <td>2026-05-01</td>
                     <td>Proveedor Norte</td>
                     <td>CONT-00000000000000000003</td>
                     <td>Puerto</td>
                     <td>Planta principal</td>
+                    <td></td>
                     <td>Miguel Silva</td>
                     <td>General</td>
                     <td>Unidad sur - AD789HI</td>
@@ -142,6 +252,7 @@
                     <td>2026-05-01</td>
                     <td>$ 0</td>
                     <td></td>
+                    <td>$ 0</td>
                     <td>$ 9.000</td>
                     <td><span class="status success">Finalizado</span></td>
                     <td><button type="button">Ver</button></td>

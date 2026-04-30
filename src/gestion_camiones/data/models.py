@@ -82,6 +82,7 @@ class Peaje:
 @dataclass(frozen=True)
 class ViajeResumen:
     id: int
+    fecha: str
     cliente: str
     carga: str
     lugar_carga: str
@@ -98,3 +99,23 @@ class ViajeResumen:
     vacio: float
     peajes: float
     estado: str
+
+
+@dataclass(frozen=True)
+class ViajeCreate:
+    fecha: str
+    cliente_id: int
+    carga_id: int
+    lugar_carga_id: int
+    lugar_descarga_id: int
+    observaciones: str
+    chofer_id: int
+    tipo_carga: str
+    camion_id: int
+    semi_id: int | None
+    tarifa: float
+    fecha_descarga_tarifa: str
+    demora: float
+    fecha_descarga_demora: str
+    vacio: float
+    peaje_ids: tuple[int, ...]

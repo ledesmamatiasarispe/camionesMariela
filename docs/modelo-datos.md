@@ -10,6 +10,7 @@ Un viaje representa una operacion de transporte de la empresa y relaciona client
 
 Encabezados originales:
 
+- FECHA
 - CLIENTE
 - CARGA
 - LUGAR CARGA
@@ -30,6 +31,7 @@ Encabezados originales:
 
 Interpretacion actual:
 
+- `FECHA`: fecha principal del viaje.
 - `T.CARGA`: se interpreta como `tipo_carga`.
 - Valores iniciales de `tipo_carga`: `GENERAL` o `PELIGROSA`.
 - El primer `F.DESC`, ubicado despues de `TARIFA`, corresponde a `fecha_descarga_tarifa`.
@@ -143,6 +145,7 @@ Campos principales:
 
 Campos principales:
 
+- `fecha`
 - `cliente_id`
 - `carga_id`
 - `lugar_carga_id`

@@ -12,6 +12,7 @@ from gestion_camiones.data.models import (
     LugarRol,
     Peaje,
     Vehiculo,
+    ViajeCreate,
     ViajeResumen,
 )
 
@@ -24,6 +25,7 @@ class ViajeRepository:
         query = """
             SELECT
                 viajes.id,
+                COALESCE(viajes.fecha, '') AS fecha,
                 clientes.nombre AS cliente,
                 cargas.codigo_contenedor AS carga,
                 lugar_carga.nombre AS lugar_carga,
@@ -69,6 +71,7 @@ class ViajeRepository:
                    OR clientes.email LIKE ?
                    OR clientes.numero_contacto LIKE ?
                    OR cargas.codigo_contenedor LIKE ?
+                   OR viajes.observaciones LIKE ?
                    OR lugar_carga.nombre LIKE ?
                    OR lugar_carga.direccion LIKE ?
                    OR lugar_carga.observaciones LIKE ?
@@ -116,14 +119,72 @@ class ViajeRepository:
                 pattern,
                 pattern,
                 pattern,
+                pattern,
             )
 
-        query += " ORDER BY viajes.fecha_descarga_tarifa, viajes.id"
+        query += " ORDER BY viajes.fecha, viajes.fecha_descarga_tarifa, viajes.id"
 
         with closing(self._connect()) as connection:
             rows = connection.execute(query, params).fetchall()
 
         return [ViajeResumen(**dict(row)) for row in rows]
+
+    def create(self, viaje: ViajeCreate) -> int:
+        with closing(self._connect()) as connection:
+            peajes_total = self._peajes_total(connection, viaje.peaje_ids)
+            cursor = connection.execute(
+                """
+                INSERT INTO viajes (
+                    fecha,
+                    cliente_id,
+                    carga_id,
+                    lugar_carga_id,
+                    lugar_descarga_id,
+                    chofer_id,
+                    camion_id,
+                    semi_id,
+                    tipo_carga,
+                    tarifa,
+                    fecha_descarga_tarifa,
+                    demora,
+                    fecha_descarga_demora,
+                    vacio,
+                    peajes,
+                    observaciones,
+                    estado
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    viaje.fecha,
+                    viaje.cliente_id,
+                    viaje.carga_id,
+                    viaje.lugar_carga_id,
+                    viaje.lugar_descarga_id,
+                    viaje.chofer_id,
+                    viaje.camion_id,
+                    viaje.semi_id,
+                    viaje.tipo_carga,
+                    viaje.tarifa,
+                    viaje.fecha_descarga_tarifa,
+                    viaje.demora,
+                    viaje.fecha_descarga_demora,
+                    viaje.vacio,
+                    peajes_total,
+                    viaje.observaciones,
+                    "Programado",
+                ),
+            )
+            viaje_id = int(cursor.lastrowid)
+            for peaje_id in viaje.peaje_ids:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO viaje_peajes (viaje_id, peaje_id)
+                    VALUES (?, ?)
+                    """,
+                    (viaje_id, peaje_id),
+                )
+            connection.commit()
+            return viaje_id
 
     def dashboard_metrics(self) -> dict[str, int | float]:
         with closing(self._connect()) as connection:
@@ -158,6 +219,21 @@ class ViajeRepository:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
+
+    def _peajes_total(
+        self,
+        connection: sqlite3.Connection,
+        peaje_ids: tuple[int, ...],
+    ) -> float:
+        if not peaje_ids:
+            return 0
+
+        placeholders = ", ".join("?" for _ in peaje_ids)
+        row = connection.execute(
+            f"SELECT COALESCE(SUM(costo), 0) FROM peajes WHERE id IN ({placeholders})",
+            peaje_ids,
+        ).fetchone()
+        return float(row[0])
 
 
 class ClienteRepository:

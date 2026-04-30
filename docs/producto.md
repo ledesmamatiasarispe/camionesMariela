@@ -18,6 +18,7 @@ Sera una app cliente sin servidor. El funcionamiento normal no debe depender de 
 ## Tareas criticas
 
 - Registrar un viaje nuevo.
+- Registrar la fecha principal del viaje.
 - Relacionar cliente, carga, lugar de carga, lugar de descarga, chofer, camion y semi.
 - Gestionar cargas como codigos largos de contenedor.
 - Registrar tipo de carga como general o carga peligrosa.

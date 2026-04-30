@@ -2,26 +2,44 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QDate, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
+    QComboBox,
+    QDateEdit,
+    QDoubleSpinBox,
+    QFormLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
+    QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from gestion_camiones.data.models import ViajeResumen
-from gestion_camiones.data.repositories import ViajeRepository
+from gestion_camiones.data.models import ViajeCreate, ViajeResumen
+from gestion_camiones.data.repositories import (
+    CargaRepository,
+    ChoferRepository,
+    ClienteRepository,
+    LugarRepository,
+    PeajeRepository,
+    VehiculoRepository,
+    ViajeRepository,
+)
 
 
 class MainWindow(QMainWindow):
@@ -29,9 +47,20 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.viaje_repository = viaje_repository
         self.database_path = database_path
+        self.cliente_repository = ClienteRepository(database_path)
+        self.carga_repository = CargaRepository(database_path)
+        self.lugar_repository = LugarRepository(database_path)
+        self.chofer_repository = ChoferRepository(database_path)
+        self.vehiculo_repository = VehiculoRepository(database_path)
+        self.peaje_repository = PeajeRepository(database_path)
         self.metric_cards: dict[str, MetricCard] = {}
         self.search_input: QLineEdit | None = None
         self.table: QTableWidget | None = None
+        self.tabs: QTabWidget | None = None
+        self.nav_buttons: dict[str, QPushButton] = {}
+        self.page_title_label: QLabel | None = None
+        self.page_subtitle_label: QLabel | None = None
+        self.form_widgets: dict[str, QWidget] = {}
 
         self.setWindowTitle("Gestion de viajes")
         self.resize(1180, 760)
@@ -48,7 +77,12 @@ class MainWindow(QMainWindow):
         file_menu.addAction(exit_action)
 
         view_menu = self.menuBar().addMenu("Vista")
-        view_menu.addAction(QAction("Tablero", self))
+        create_action = QAction("Cargar viaje", self)
+        create_action.triggered.connect(self._go_to_create_tab)
+        dashboard_action = QAction("Tablero", self)
+        dashboard_action.triggered.connect(self._go_to_dashboard_tab)
+        view_menu.addAction(create_action)
+        view_menu.addAction(dashboard_action)
         view_menu.addAction(QAction("Viajes", self))
         view_menu.addAction(QAction("Maestros", self))
 
@@ -81,11 +115,16 @@ class MainWindow(QMainWindow):
         layout.addSpacing(24)
 
         for index, item in enumerate(
-            ["Tablero", "Viajes", "Clientes", "Choferes", "Vehiculos", "Reportes"]
+            ["Cargar viaje", "Tablero", "Viajes", "Clientes", "Choferes", "Vehiculos"]
         ):
             button = QPushButton(item)
             button.setObjectName("navButtonActive" if index == 0 else "navButton")
             button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.nav_buttons[item] = button
+            if item == "Cargar viaje":
+                button.clicked.connect(self._go_to_create_tab)
+            elif item == "Tablero":
+                button.clicked.connect(self._go_to_dashboard_tab)
             layout.addWidget(button)
 
         layout.addStretch()
@@ -105,8 +144,12 @@ class MainWindow(QMainWindow):
         content_layout.setContentsMargins(24, 24, 24, 24)
         content_layout.setSpacing(20)
 
-        content_layout.addLayout(self._build_metrics())
-        content_layout.addWidget(self._build_table_panel(), stretch=1)
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_viaje_form_tab(), "Cargar viaje")
+        self.tabs.addTab(self._build_dashboard_tab(), "Tablero")
+        self.tabs.currentChanged.connect(self._sync_tab_header)
+        content_layout.addWidget(self.tabs, stretch=1)
+        self._sync_tab_header(0)
 
         layout.addWidget(content, stretch=1)
         return main
@@ -122,10 +165,14 @@ class MainWindow(QMainWindow):
 
         title_block = QVBoxLayout()
         title_block.setSpacing(2)
-        title = QLabel("Tablero operativo")
+        title = QLabel("Cargar viaje")
         title.setObjectName("pageTitle")
-        subtitle = QLabel("Resumen de viajes e importes cobrados al cliente.")
+        subtitle = QLabel(
+            "Alta de viaje con cliente, carga, lugares, chofer, vehiculos e importes."
+        )
         subtitle.setObjectName("muted")
+        self.page_title_label = title
+        self.page_subtitle_label = subtitle
         title_block.addWidget(title)
         title_block.addWidget(subtitle)
 
@@ -137,12 +184,161 @@ class MainWindow(QMainWindow):
         new_button = QPushButton("Nuevo viaje")
         new_button.setObjectName("primaryButton")
         new_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        new_button.clicked.connect(self._go_to_create_tab)
 
         layout.addLayout(title_block)
         layout.addStretch()
         layout.addWidget(self.search_input)
         layout.addWidget(new_button)
         return topbar
+
+    def _build_viaje_form_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        panel = QFrame()
+        panel.setObjectName("panel")
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(18, 18, 18, 18)
+        panel_layout.setSpacing(14)
+
+        title = QLabel("Cargar viaje")
+        title.setObjectName("sectionTitle")
+        panel_layout.addWidget(title)
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(10)
+
+        fecha = QDateEdit()
+        fecha.setCalendarPopup(True)
+        fecha.setDisplayFormat("yyyy-MM-dd")
+        fecha.setDate(QDate.currentDate())
+
+        cliente = self._build_combo(
+            [(item.nombre, item.id) for item in self.cliente_repository.list_all()]
+        )
+        carga = self._build_combo(
+            [
+                (item.codigo_contenedor, item.id)
+                for item in self.carga_repository.list_all()
+            ]
+        )
+        lugar_carga = self._build_lugar_combo("CARGA")
+        lugar_descarga = self._build_lugar_combo("DESCARGA")
+
+        observaciones = QTextEdit()
+        observaciones.setFixedHeight(72)
+
+        chofer = self._build_combo(
+            [(f"{item.nombre_completo} - DNI {item.dni}", item.id)
+             for item in self.chofer_repository.list_all()]
+        )
+        tipo_carga = self._build_combo(
+            [("General", "GENERAL"), ("Carga peligrosa", "PELIGROSA")]
+        )
+        camion = self._build_combo(
+            [(item.etiqueta, item.id)
+             for item in self.vehiculo_repository.list_all("CAMION")]
+        )
+        semi = self._build_combo(
+            [("Sin semi", None)]
+            + [(item.etiqueta, item.id)
+               for item in self.vehiculo_repository.list_all("SEMI")]
+        )
+
+        tarifa = self._money_input()
+        fecha_descarga_tarifa = QDateEdit()
+        fecha_descarga_tarifa.setCalendarPopup(True)
+        fecha_descarga_tarifa.setDisplayFormat("yyyy-MM-dd")
+        fecha_descarga_tarifa.setDate(QDate.currentDate())
+
+        demora = self._money_input()
+        fecha_descarga_demora = QDateEdit()
+        fecha_descarga_demora.setCalendarPopup(True)
+        fecha_descarga_demora.setDisplayFormat("yyyy-MM-dd")
+        fecha_descarga_demora.setDate(QDate.currentDate())
+
+        vacio = self._money_input()
+        peajes = QListWidget()
+        peajes.setFixedHeight(92)
+        for item in self.peaje_repository.list_all():
+            peaje_item = QListWidgetItem(
+                f"{item.nombre} - {_format_money(item.costo)}"
+            )
+            peaje_item.setFlags(
+                peaje_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+            )
+            peaje_item.setCheckState(Qt.CheckState.Unchecked)
+            peaje_item.setData(Qt.ItemDataRole.UserRole, item.id)
+            peajes.addItem(peaje_item)
+
+        self.form_widgets = {
+            "fecha": fecha,
+            "cliente": cliente,
+            "carga": carga,
+            "lugar_carga": lugar_carga,
+            "lugar_descarga": lugar_descarga,
+            "observaciones": observaciones,
+            "chofer": chofer,
+            "tipo_carga": tipo_carga,
+            "camion": camion,
+            "semi": semi,
+            "tarifa": tarifa,
+            "fecha_descarga_tarifa": fecha_descarga_tarifa,
+            "demora": demora,
+            "fecha_descarga_demora": fecha_descarga_demora,
+            "vacio": vacio,
+            "peajes": peajes,
+        }
+
+        form.addRow("Fecha", fecha)
+        form.addRow("Cliente", cliente)
+        form.addRow("Carga", carga)
+        form.addRow("Lugar carga", lugar_carga)
+        form.addRow("L.Descarga", lugar_descarga)
+        form.addRow("Observaciones", observaciones)
+        form.addRow("Chofer", chofer)
+        form.addRow("T.Carga", tipo_carga)
+        form.addRow("Camion", camion)
+        form.addRow("Semi", semi)
+        form.addRow("Tarifa", tarifa)
+        form.addRow("F.Desc tarifa", fecha_descarga_tarifa)
+        form.addRow("Demora", demora)
+        form.addRow("F.Desc demora", fecha_descarga_demora)
+        form.addRow("Vacio", vacio)
+        form.addRow("Peajes", peajes)
+        panel_layout.addLayout(form)
+
+        actions = QHBoxLayout()
+        actions.addStretch()
+        save_button = QPushButton("Guardar viaje")
+        save_button.setObjectName("primaryButton")
+        save_button.clicked.connect(self._save_viaje)
+        actions.addWidget(save_button)
+        panel_layout.addLayout(actions)
+
+        scroll = QScrollArea()
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(panel)
+
+        layout.addWidget(scroll, stretch=1)
+        return tab
+
+    def _build_dashboard_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(20)
+
+        layout.addLayout(self._build_metrics())
+        layout.addWidget(self._build_table_panel(), stretch=1)
+        return tab
 
     def _build_metrics(self) -> QGridLayout:
         grid = QGridLayout()
@@ -180,9 +376,10 @@ class MainWindow(QMainWindow):
         header_layout.addStretch()
         header_layout.addWidget(export_button)
 
-        self.table = QTableWidget(0, 16)
+        self.table = QTableWidget(0, 17)
         self.table.setHorizontalHeaderLabels(
             [
+                "Fecha",
                 "Cliente",
                 "Carga",
                 "Lugar carga",
@@ -229,6 +426,7 @@ class MainWindow(QMainWindow):
 
     def _viaje_to_row(self, viaje: ViajeResumen) -> list[str]:
         return [
+            viaje.fecha,
             viaje.cliente,
             viaje.carga,
             viaje.lugar_carga,
@@ -247,6 +445,178 @@ class MainWindow(QMainWindow):
             viaje.estado,
         ]
 
+    def _save_viaje(self) -> None:
+        try:
+            viaje = self._collect_viaje_form()
+            self.viaje_repository.create(viaje)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Datos incompletos", str(exc))
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"No se pudo guardar el viaje.\n{exc}")
+            return
+
+        QMessageBox.information(self, "Viaje guardado", "El viaje se cargo correctamente.")
+        self._refresh_table()
+        self._refresh_metrics()
+        self._clear_viaje_form()
+        if self.tabs is not None:
+            self.tabs.setCurrentIndex(1)
+
+    def _collect_viaje_form(self) -> ViajeCreate:
+        fecha = self._date_value("fecha")
+        fecha_descarga_tarifa = self._date_value("fecha_descarga_tarifa")
+        fecha_descarga_demora = self._date_value("fecha_descarga_demora")
+
+        return ViajeCreate(
+            fecha=fecha,
+            cliente_id=self._required_combo_int("cliente"),
+            carga_id=self._required_combo_int("carga"),
+            lugar_carga_id=self._required_combo_int("lugar_carga"),
+            lugar_descarga_id=self._required_combo_int("lugar_descarga"),
+            observaciones=self._text_value("observaciones"),
+            chofer_id=self._required_combo_int("chofer"),
+            tipo_carga=str(self._combo_value("tipo_carga") or "GENERAL"),
+            camion_id=self._required_combo_int("camion"),
+            semi_id=self._optional_combo_int("semi"),
+            tarifa=self._money_value("tarifa"),
+            fecha_descarga_tarifa=fecha_descarga_tarifa,
+            demora=self._money_value("demora"),
+            fecha_descarga_demora=fecha_descarga_demora,
+            vacio=self._money_value("vacio"),
+            peaje_ids=self._checked_peaje_ids(),
+        )
+
+    def _clear_viaje_form(self) -> None:
+        for key in ("tarifa", "demora", "vacio"):
+            widget = self.form_widgets[key]
+            if isinstance(widget, QDoubleSpinBox):
+                widget.setValue(0)
+
+        observaciones = self.form_widgets["observaciones"]
+        if isinstance(observaciones, QTextEdit):
+            observaciones.clear()
+
+        for key in ("fecha", "fecha_descarga_tarifa", "fecha_descarga_demora"):
+            widget = self.form_widgets[key]
+            if isinstance(widget, QDateEdit):
+                widget.setDate(QDate.currentDate())
+
+        peajes = self.form_widgets["peajes"]
+        if isinstance(peajes, QListWidget):
+            for row in range(peajes.count()):
+                peajes.item(row).setCheckState(Qt.CheckState.Unchecked)
+
+    def _refresh_metrics(self) -> None:
+        metrics = self.viaje_repository.dashboard_metrics()
+        for label, value in metrics.items():
+            card = self.metric_cards.get(label)
+            if card is None:
+                continue
+            display_value = (
+                str(value)
+                if label == "Viajes cargados"
+                else _format_money(value)
+            )
+            card.set_value(display_value)
+
+    def _go_to_create_tab(self) -> None:
+        if self.tabs is not None:
+            self.tabs.setCurrentIndex(0)
+
+    def _go_to_dashboard_tab(self) -> None:
+        if self.tabs is not None:
+            self.tabs.setCurrentIndex(1)
+
+    def _sync_tab_header(self, index: int) -> None:
+        title = "Cargar viaje" if index == 0 else "Tablero operativo"
+        subtitle = (
+            "Alta de viaje con cliente, carga, lugares, chofer, vehiculos e importes."
+            if index == 0
+            else "Resumen de viajes e importes cobrados al cliente."
+        )
+        if self.page_title_label is not None:
+            self.page_title_label.setText(title)
+        if self.page_subtitle_label is not None:
+            self.page_subtitle_label.setText(subtitle)
+        if self.search_input is not None:
+            self.search_input.setVisible(index == 1)
+
+        active_label = "Cargar viaje" if index == 0 else "Tablero"
+        for label, button in self.nav_buttons.items():
+            object_name = "navButtonActive" if label == active_label else "navButton"
+            button.setObjectName(object_name)
+            button.style().unpolish(button)
+            button.style().polish(button)
+
+    def _build_combo(self, items: list[tuple[str, object]]) -> QComboBox:
+        combo = QComboBox()
+        for label, value in items:
+            combo.addItem(label, value)
+        return combo
+
+    def _build_lugar_combo(self, rol: str) -> QComboBox:
+        roles = self.lugar_repository.list_roles(rol)
+        if roles:
+            return self._build_combo([(item.lugar, item.lugar_id) for item in roles])
+        return self._build_combo(
+            [(item.nombre, item.id) for item in self.lugar_repository.list_all()]
+        )
+
+    def _money_input(self) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(0, 999_999_999)
+        spin.setDecimals(2)
+        spin.setSingleStep(1000)
+        spin.setPrefix("$ ")
+        return spin
+
+    def _combo_value(self, key: str) -> object:
+        widget = self.form_widgets[key]
+        if not isinstance(widget, QComboBox):
+            raise ValueError("Campo invalido.")
+        return widget.currentData()
+
+    def _required_combo_int(self, key: str) -> int:
+        value = self._combo_value(key)
+        if value is None:
+            raise ValueError("Faltan datos obligatorios del viaje.")
+        return int(value)
+
+    def _optional_combo_int(self, key: str) -> int | None:
+        value = self._combo_value(key)
+        return None if value is None else int(value)
+
+    def _date_value(self, key: str) -> str:
+        widget = self.form_widgets[key]
+        if not isinstance(widget, QDateEdit):
+            raise ValueError("Campo de fecha invalido.")
+        return widget.date().toString("yyyy-MM-dd")
+
+    def _text_value(self, key: str) -> str:
+        widget = self.form_widgets[key]
+        if not isinstance(widget, QTextEdit):
+            raise ValueError("Campo de texto invalido.")
+        return widget.toPlainText().strip()
+
+    def _money_value(self, key: str) -> float:
+        widget = self.form_widgets[key]
+        if not isinstance(widget, QDoubleSpinBox):
+            raise ValueError("Campo de importe invalido.")
+        return float(widget.value())
+
+    def _checked_peaje_ids(self) -> tuple[int, ...]:
+        widget = self.form_widgets["peajes"]
+        if not isinstance(widget, QListWidget):
+            raise ValueError("Campo de peajes invalido.")
+
+        peaje_ids = []
+        for row in range(widget.count()):
+            item = widget.item(row)
+            if item.checkState() == Qt.CheckState.Checked:
+                peaje_ids.append(int(item.data(Qt.ItemDataRole.UserRole)))
+        return tuple(peaje_ids)
+
 
 class MetricCard(QFrame):
     def __init__(self, label: str, value: str) -> None:
@@ -263,6 +633,10 @@ class MetricCard(QFrame):
 
         layout.addWidget(label_widget)
         layout.addWidget(value_widget)
+        self.value_widget = value_widget
+
+    def set_value(self, value: str) -> None:
+        self.value_widget.setText(value)
 
 
 def _format_money(value: float) -> str:
@@ -300,6 +674,47 @@ QLineEdit {
     border-radius: 8px;
     background: #ffffff;
     padding: 0 12px;
+}
+
+QComboBox,
+QDateEdit,
+QDoubleSpinBox,
+QTextEdit,
+QListWidget {
+    border: 1px solid #d9e0e5;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 6px 8px;
+}
+
+QComboBox,
+QDateEdit,
+QDoubleSpinBox {
+    min-height: 34px;
+}
+
+QTabWidget::pane {
+    border: none;
+}
+
+QScrollArea {
+    border: none;
+    background: transparent;
+}
+
+QTabBar::tab {
+    min-height: 34px;
+    border: 1px solid #d9e0e5;
+    border-bottom: none;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    background: #eef3f5;
+    padding: 0 14px;
+}
+
+QTabBar::tab:selected {
+    background: #ffffff;
+    color: #1f6f8b;
 }
 
 QFrame#sidebar {

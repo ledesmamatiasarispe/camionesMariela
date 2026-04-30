@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS peajes (
 
 CREATE TABLE IF NOT EXISTS viajes (
     id INTEGER PRIMARY KEY,
+    fecha TEXT NOT NULL DEFAULT '',
     cliente_id INTEGER NOT NULL,
     carga_id INTEGER NOT NULL,
     lugar_carga_id INTEGER NOT NULL,
@@ -118,6 +119,7 @@ CREATE TABLE IF NOT EXISTS viaje_peajes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_viajes_cliente_id ON viajes(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_viajes_fecha ON viajes(fecha);
 CREATE INDEX IF NOT EXISTS idx_viajes_chofer_id ON viajes(chofer_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_camion_id ON viajes(camion_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_estado ON viajes(estado);
@@ -141,6 +143,7 @@ CREATE INDEX IF NOT EXISTS idx_peajes_nombre ON peajes(nombre);
 CREATE INDEX IF NOT EXISTS idx_viaje_peajes_viaje_id ON viaje_peajes(viaje_id);
 CREATE INDEX IF NOT EXISTS idx_viaje_peajes_peaje_id ON viaje_peajes(peaje_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_cliente_id ON viajes(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_viajes_fecha ON viajes(fecha);
 CREATE INDEX IF NOT EXISTS idx_viajes_chofer_id ON viajes(chofer_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_camion_id ON viajes(camion_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_estado ON viajes(estado);
@@ -239,6 +242,7 @@ INSERT OR IGNORE INTO peajes (id, nombre, direccion, costo) VALUES
 
 INSERT OR IGNORE INTO viajes (
     id,
+    fecha,
     cliente_id,
     carga_id,
     lugar_carga_id,
@@ -257,15 +261,15 @@ INSERT OR IGNORE INTO viajes (
     estado
 ) VALUES
     (
-        1, 1, 1, 2, 1, 1, 1, 1001, 'GENERAL', 120000, '2026-04-30',
+        1, '2026-04-30', 1, 1, 2, 1, 1, 1, 1001, 'GENERAL', 120000, '2026-04-30',
         0, NULL, 0, 15000, 'Control pendiente', 'Programado'
     ),
     (
-        2, 2, 2, 1, 3, 2, 2, 1002, 'PELIGROSA', 180000, '2026-04-30',
+        2, '2026-04-30', 2, 2, 1, 3, 2, 2, 1002, 'PELIGROSA', 180000, '2026-04-30',
         25000, NULL, 10000, 22000, 'Demora informada', 'En viaje'
     ),
     (
-        3, 3, 3, 4, 1, 3, 3, 1003, 'GENERAL', 95000, '2026-05-01',
+        3, '2026-05-01', 3, 3, 4, 1, 3, 3, 1003, 'GENERAL', 95000, '2026-05-01',
         0, NULL, 0, 9000, '', 'Finalizado'
     );
 
@@ -297,6 +301,7 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
         _migrate_choferes(connection)
         _migrate_vehiculos(connection)
         _migrate_viajes_to_vehiculos(connection)
+        _migrate_viaje_fecha(connection)
         _migrate_viaje_fechas_descarga(connection)
         _migrate_tipo_carga(connection)
         _migrate_peajes_from_viajes(connection)
@@ -484,6 +489,7 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
         if "fecha_descarga_real" in columns
         else "NULL"
     )
+    fecha = "fecha" if "fecha" in columns else "''"
 
     connection.execute("PRAGMA foreign_keys = OFF")
     connection.execute("DROP TABLE IF EXISTS viaje_peajes")
@@ -492,6 +498,7 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
         """
         CREATE TABLE viajes (
             id INTEGER PRIMARY KEY,
+            fecha TEXT NOT NULL DEFAULT '',
             cliente_id INTEGER NOT NULL,
             carga_id INTEGER NOT NULL,
             lugar_carga_id INTEGER NOT NULL,
@@ -525,6 +532,7 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
         f"""
         INSERT INTO viajes (
             id,
+            fecha,
             cliente_id,
             carga_id,
             lugar_carga_id,
@@ -546,6 +554,7 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
         )
         SELECT
             id,
+            {fecha},
             cliente_id,
             carga_id,
             lugar_carga_id,
@@ -574,6 +583,13 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
     connection.execute("DROP TABLE viajes_legacy")
     _create_viaje_peajes_table(connection)
     connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_viaje_fecha(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "viajes")
+
+    if "fecha" not in columns:
+        connection.execute("ALTER TABLE viajes ADD COLUMN fecha TEXT NOT NULL DEFAULT ''")
 
 
 def _create_viaje_peajes_table(connection: sqlite3.Connection) -> None:
