@@ -45,12 +45,17 @@ jobs:
           python -m pip install -e .
 
       - name: Prepare Apple signing keychain
-        if: runner.os == 'macOS' && secrets.APPLE_DEVELOPER_ID_APP_CERT != '' && secrets.APPLE_DEVELOPER_ID_APP_CERT_PASSWORD != '' && secrets.APPLE_DEVELOPER_ID_APP_IDENTITY != ''
+        if: runner.os == 'macOS'
         env:
           APPLE_DEVELOPER_ID_APP_CERT: ${{ secrets.APPLE_DEVELOPER_ID_APP_CERT }}
           APPLE_DEVELOPER_ID_APP_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APP_CERT_PASSWORD }}
+          APPLE_DEVELOPER_ID_APP_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_APP_IDENTITY }}
           APPLE_KEYCHAIN_PASSWORD: temporary-build-password
         run: |
+          if [[ -z "$APPLE_DEVELOPER_ID_APP_CERT" || -z "$APPLE_DEVELOPER_ID_APP_CERT_PASSWORD" || -z "$APPLE_DEVELOPER_ID_APP_IDENTITY" ]]; then
+            echo "No Apple signing secrets configured. Continuing without code signing."
+            exit 0
+          fi
           CERT_PATH="$RUNNER_TEMP/developer-id-application.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
           echo "$APPLE_DEVELOPER_ID_APP_CERT" | base64 --decode > "$CERT_PATH"
@@ -67,10 +72,14 @@ jobs:
         run: pyinstaller packaging/gestion-camiones.spec
 
       - name: Codesign macOS app
-        if: runner.os == 'macOS' && secrets.APPLE_DEVELOPER_ID_APP_IDENTITY != ''
+        if: runner.os == 'macOS'
         env:
           APPLE_DEVELOPER_ID_APP_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_APP_IDENTITY }}
         run: |
+          if [[ -z "$APPLE_DEVELOPER_ID_APP_IDENTITY" ]]; then
+            echo "No Apple signing identity configured. Skipping app codesign."
+            exit 0
+          fi
           codesign --force --deep --options runtime --timestamp \
             --entitlements packaging/macos-entitlements.plist \
             --sign "$APPLE_DEVELOPER_ID_APP_IDENTITY" \
@@ -87,20 +96,28 @@ jobs:
         run: bash packaging/build_macos_dmg.sh dist/GestionCamiones.app ${{ matrix.artifact_name }}
 
       - name: Codesign macOS disk image
-        if: runner.os == 'macOS' && secrets.APPLE_DEVELOPER_ID_APP_IDENTITY != ''
+        if: runner.os == 'macOS'
         env:
           APPLE_DEVELOPER_ID_APP_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_APP_IDENTITY }}
         run: |
+          if [[ -z "$APPLE_DEVELOPER_ID_APP_IDENTITY" ]]; then
+            echo "No Apple signing identity configured. Skipping DMG codesign."
+            exit 0
+          fi
           codesign --force --timestamp --sign "$APPLE_DEVELOPER_ID_APP_IDENTITY" ${{ matrix.artifact_name }}
           codesign --verify --verbose=2 ${{ matrix.artifact_name }}
 
       - name: Notarize macOS disk image
-        if: runner.os == 'macOS' && secrets.APPLE_NOTARY_KEY_ID != '' && secrets.APPLE_NOTARY_ISSUER_ID != '' && secrets.APPLE_NOTARY_PRIVATE_KEY != ''
+        if: runner.os == 'macOS'
         env:
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
           APPLE_NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
         run: |
+          if [[ -z "$APPLE_NOTARY_KEY_ID" || -z "$APPLE_NOTARY_ISSUER_ID" || -z "$APPLE_NOTARY_PRIVATE_KEY" ]]; then
+            echo "No Apple notarization secrets configured. Skipping notarization."
+            exit 0
+          fi
           AUTH_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
           printf '%s' "$APPLE_NOTARY_PRIVATE_KEY" > "$AUTH_KEY_PATH"
           xcrun notarytool submit ${{ matrix.artifact_name }} \
