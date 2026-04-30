@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         self.page_title_label: QLabel | None = None
         self.page_subtitle_label: QLabel | None = None
         self.new_button: QPushButton | None = None
+        self.save_button: QPushButton | None = None
         self.form_widgets: dict[str, QWidget] = {}
 
         self.setWindowTitle("Gestion de viajes")
@@ -257,15 +258,21 @@ class MainWindow(QMainWindow):
         self.search_input.textChanged.connect(self._refresh_table)
 
         new_button = QPushButton("Nuevo viaje")
-        new_button.setObjectName("primaryButton")
         new_button.setCursor(Qt.CursorShape.PointingHandCursor)
         new_button.clicked.connect(self._prepare_new_viaje)
         self.new_button = new_button
+
+        save_button = QPushButton("Guardar viaje")
+        save_button.setObjectName("primaryButton")
+        save_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_button.clicked.connect(self._save_viaje)
+        self.save_button = save_button
 
         layout.addLayout(title_block)
         layout.addStretch()
         layout.addWidget(self.search_input)
         layout.addWidget(new_button)
+        layout.addWidget(save_button)
         return topbar
 
     def _build_viaje_form_tab(self) -> QWidget:
@@ -280,18 +287,20 @@ class MainWindow(QMainWindow):
         panel_layout.setContentsMargins(18, 18, 18, 18)
         panel_layout.setSpacing(14)
 
-        header = QHBoxLayout()
-        title = QLabel("Cargar viaje")
-        title.setObjectName("sectionTitle")
-        header.addWidget(title)
-        header.addStretch()
-        panel_layout.addLayout(header)
+        form_grid = QGridLayout()
+        form_grid.setHorizontalSpacing(28)
+        form_grid.setVerticalSpacing(0)
+        form_grid.setColumnStretch(0, 1)
+        form_grid.setColumnStretch(1, 1)
 
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        form.setHorizontalSpacing(16)
-        form.setVerticalSpacing(10)
+        left_form = QFormLayout()
+        right_form = QFormLayout()
+        for form in (left_form, right_form):
+            form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+            form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+            form.setHorizontalSpacing(16)
+            form.setVerticalSpacing(10)
 
         fecha = QDateEdit()
         fecha.setCalendarPopup(True)
@@ -384,32 +393,28 @@ class MainWindow(QMainWindow):
             "peajes": peajes,
         }
 
-        form.addRow("Fecha", fecha)
-        form.addRow("Cliente", cliente)
-        form.addRow("Carga", carga)
-        form.addRow("Lugar carga", lugar_carga)
-        form.addRow("L.Descarga", lugar_descarga)
-        form.addRow("Observaciones", observaciones)
-        form.addRow("Chofer", chofer)
-        form.addRow("T.Carga", tipo_carga)
-        form.addRow("Camion", camion)
-        form.addRow("Semi", semi)
-        form.addRow("Tarifa", tarifa)
-        form.addRow("F.Desc tarifa", fecha_descarga_tarifa)
-        form.addRow("Demora", demora)
-        form.addRow("F.Desc demora", fecha_descarga_demora)
-        form.addRow("Vacio", vacio)
-        form.addRow("F.Desc vacio", fecha_descarga_vacio)
-        form.addRow("Peajes", peajes)
-        panel_layout.addLayout(form)
+        left_form.addRow("Fecha", fecha)
+        left_form.addRow("Cliente", cliente)
+        left_form.addRow("Carga", carga)
+        left_form.addRow("Lugar carga", lugar_carga)
+        left_form.addRow("L.Descarga", lugar_descarga)
+        left_form.addRow("Observaciones", observaciones)
+        left_form.addRow("Chofer", chofer)
+        left_form.addRow("T.Carga", tipo_carga)
 
-        actions = QHBoxLayout()
-        actions.addStretch()
-        save_button = QPushButton("Guardar viaje")
-        save_button.setObjectName("primaryButton")
-        save_button.clicked.connect(self._save_viaje)
-        actions.addWidget(save_button)
-        panel_layout.addLayout(actions)
+        right_form.addRow("Camion", camion)
+        right_form.addRow("Semi", semi)
+        right_form.addRow("Tarifa", tarifa)
+        right_form.addRow("F.Desc tarifa", fecha_descarga_tarifa)
+        right_form.addRow("Demora", demora)
+        right_form.addRow("F.Desc demora", fecha_descarga_demora)
+        right_form.addRow("Vacio", vacio)
+        right_form.addRow("F.Desc vacio", fecha_descarga_vacio)
+        right_form.addRow("Peajes", peajes)
+
+        form_grid.addLayout(left_form, 0, 0)
+        form_grid.addLayout(right_form, 0, 1)
+        panel_layout.addLayout(form_grid)
 
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -1602,8 +1607,20 @@ class MainWindow(QMainWindow):
         self._go_to_history_tab()
 
     def _prepare_new_viaje(self) -> None:
+        if not self._confirm_clear_viaje_form():
+            return
         self._clear_viaje_form()
         self._go_to_create_tab()
+
+    def _confirm_clear_viaje_form(self) -> bool:
+        response = QMessageBox.question(
+            self,
+            "Nuevo viaje",
+            "Se van a borrar los datos cargados en el formulario. Continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return response == QMessageBox.StandardButton.Yes
 
     def _collect_viaje_form(self) -> ViajeCreate:
         fecha = self._date_value("fecha")
@@ -1649,9 +1666,12 @@ class MainWindow(QMainWindow):
         if isinstance(observaciones, QTextEdit):
             observaciones.clear()
 
-        carga = self.form_widgets["carga"]
-        if isinstance(carga, QComboBox) and carga.isEditable():
-            carga.setCurrentText("")
+        for widget in self.form_widgets.values():
+            if isinstance(widget, QComboBox):
+                if widget.isEditable():
+                    widget.setCurrentText("")
+                elif widget.count() > 0:
+                    widget.setCurrentIndex(0)
 
         for key in (
             "fecha",
@@ -1713,6 +1733,8 @@ class MainWindow(QMainWindow):
             self.search_input.setVisible(active_label == "Historial viajes")
         if self.new_button is not None:
             self.new_button.setVisible(active_label == "Cargar viaje")
+        if self.save_button is not None:
+            self.save_button.setVisible(active_label == "Cargar viaje")
 
         for label, button in self.nav_buttons.items():
             object_name = "navButtonActive" if label == active_label else "navButton"

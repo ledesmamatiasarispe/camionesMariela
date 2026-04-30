@@ -7,7 +7,8 @@
 - Secciones principales: Cargar viaje, Historial viajes, Clientes, Lugares,
   Chofer, T.Carga, Vehiculos, Peajes, Estadisticas y Opciones.
 - Items laterales equivalentes a las secciones principales.
-- Boton superior `Nuevo viaje` visible solo en la seccion Cargar viaje.
+- Botones superiores `Nuevo viaje` y `Guardar viaje` visibles solo en la
+  seccion Cargar viaje.
 
 ## Datos
 
@@ -18,11 +19,14 @@
 - Tarjetas de resumen operativo.
 - Botonera propia Crear, Editar y Eliminar en secciones de mantenimiento.
 - Sin botonera Crear, Editar y Eliminar en Cargar viaje, Estadisticas y Opciones.
+- `Nuevo viaje` limpia el formulario de carga con confirmacion previa.
 
 ## Formularios
 
 - Alta/edicion de viaje.
 - El formulario de alta de viaje es la primera pestana de la app.
+- El formulario de alta de viaje usa dos columnas en escritorio para reducir
+  espacio vertical desperdiciado.
 - Alta/edicion de clientes, cargas, lugares, choferes y vehiculos.
 - Datos de cliente: nombre, domicilio fiscal, email y numero de contacto.
 - Datos de carga: codigo largo identificatorio del contenedor, editable al

@@ -41,8 +41,9 @@ Secciones iniciales:
 La seccion interna puede implementarse con pestanas ocultas de PySide6, pero no
 debe mostrarse una segunda fila de botones arriba del contenido.
 
-El boton superior `Nuevo viaje` solo debe mostrarse dentro de `Cargar viaje`.
-En el resto de las secciones, las acciones se resuelven dentro de cada pantalla.
+Los botones superiores `Nuevo viaje` y `Guardar viaje` solo deben mostrarse
+dentro de `Cargar viaje`. En el resto de las secciones, las acciones se
+resuelven dentro de cada pantalla.
 
 Las secciones de mantenimiento, excepto `Cargar viaje`, `Estadisticas` y
 `Opciones`, deben tener su propia botonera operativa:
@@ -51,7 +52,12 @@ Las secciones de mantenimiento, excepto `Cargar viaje`, `Estadisticas` y
 - Editar.
 - Eliminar.
 
-La seccion `Cargar viaje` debe tener solo la accion de guardar el viaje cargado.
+La seccion `Cargar viaje` debe tener sus acciones principales arriba: `Nuevo
+viaje` para limpiar el formulario con confirmacion y `Guardar viaje` para
+registrar el viaje cargado.
+
+El formulario de `Cargar viaje` debe distribuir los campos en dos columnas para
+aprovechar mejor el ancho de la ventana.
 
 La primera seccion es `Cargar viaje`. Debe pedir los datos del viaje en el mismo
 orden operativo definido por la planilla:

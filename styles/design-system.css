@@ -171,7 +171,7 @@ button:hover {
 
 .travel-form {
   display: grid;
-  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
   gap: var(--space-4);
   padding: var(--space-4);
 }
@@ -361,7 +361,7 @@ tr:last-child td {
   }
 
   .travel-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 
   .topbar {
