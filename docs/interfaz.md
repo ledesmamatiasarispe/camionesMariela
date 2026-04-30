@@ -86,6 +86,7 @@ La seccion `Historial viajes` debe funcionar como historial operativo:
 
 - Bloque superior `Facturacion meses`.
 - Selector de mes y ano final para definir un rango de 12 meses.
+- El selector no debe permitir elegir un mes posterior al mes actual.
 - Recuadros mensuales con la facturacion de cada mes del rango.
 - Busqueda por cliente, chofer, vehiculo, lugar o peaje.
 - Tabla de viajes.

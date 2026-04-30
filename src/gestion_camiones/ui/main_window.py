@@ -792,21 +792,24 @@ class MainWindow(QMainWindow):
         header.addStretch()
 
         current_date = QDate.currentDate()
-        month_combo = self._build_combo(
-            [(name, index + 1) for index, name in enumerate(MONTH_NAMES)]
-        )
-        month_combo.setCurrentIndex(current_date.month() - 1)
-        month_combo.currentIndexChanged.connect(self._refresh_billing_months)
+        month_combo = QComboBox()
         self.billing_month_combo = month_combo
 
-        years = set(self.viaje_repository.billing_years())
-        years.update(range(current_date.year() - 1, current_date.year() + 2))
+        years = {
+            year
+            for year in self.viaje_repository.billing_years()
+            if year <= current_date.year()
+        }
+        years.update(range(current_date.year() - 1, current_date.year() + 1))
         year_combo = self._build_combo([(str(year), year) for year in sorted(years)])
         year_index = year_combo.findData(current_date.year())
         if year_index >= 0:
             year_combo.setCurrentIndex(year_index)
-        year_combo.currentIndexChanged.connect(self._refresh_billing_months)
         self.billing_year_combo = year_combo
+
+        self._set_billing_month_options(current_date.month())
+        month_combo.currentIndexChanged.connect(self._refresh_billing_months)
+        year_combo.currentIndexChanged.connect(self._billing_year_changed)
 
         header.addWidget(QLabel("Mes final"))
         header.addWidget(month_combo)
@@ -1771,6 +1774,33 @@ class MainWindow(QMainWindow):
                 else _format_money(value)
             )
             card.set_value(display_value)
+
+    def _billing_year_changed(self) -> None:
+        selected_month = QDate.currentDate().month()
+        if self.billing_month_combo is not None and self.billing_month_combo.count() > 0:
+            selected_month = int(self.billing_month_combo.currentData() or selected_month)
+        self._set_billing_month_options(selected_month)
+        self._refresh_billing_months()
+
+    def _set_billing_month_options(self, selected_month: int) -> None:
+        if self.billing_month_combo is None or self.billing_year_combo is None:
+            return
+
+        current_date = QDate.currentDate()
+        selected_year = int(self.billing_year_combo.currentData() or current_date.year())
+        max_month = current_date.month() if selected_year >= current_date.year() else 12
+        selected_month = min(max(selected_month, 1), max_month)
+
+        previous_state = self.billing_month_combo.blockSignals(True)
+        self.billing_month_combo.clear()
+        for month_number, month_name in enumerate(MONTH_NAMES, start=1):
+            if month_number <= max_month:
+                self.billing_month_combo.addItem(month_name, month_number)
+
+        month_index = self.billing_month_combo.findData(selected_month)
+        if month_index >= 0:
+            self.billing_month_combo.setCurrentIndex(month_index)
+        self.billing_month_combo.blockSignals(previous_state)
 
     def _refresh_billing_months(self) -> None:
         if (

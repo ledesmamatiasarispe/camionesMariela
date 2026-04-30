@@ -19,6 +19,7 @@
 - Busqueda rapida.
 - Tarjetas de resumen operativo.
 - Recuadros mensuales de facturacion con rango configurable por mes y ano final.
+- El rango de facturacion no permite avanzar mas alla del mes actual.
 - Botonera propia Crear, Editar y Eliminar en secciones de mantenimiento.
 - Sin botonera Crear, Editar y Eliminar en Cargar viaje, Estadisticas y Opciones.
 - `Nuevo viaje` limpia el formulario de carga con confirmacion previa.
