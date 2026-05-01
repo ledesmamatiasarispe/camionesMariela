@@ -7,7 +7,7 @@ from dataclasses import dataclass
 class Cliente:
     id: int
     nombre: str
-    domicilio_fiscal: str
+    cuit: str
     email: str
     numero_contacto: str
     es_cliente_directo: bool

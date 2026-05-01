@@ -10,7 +10,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS clientes (
     id INTEGER PRIMARY KEY,
     nombre TEXT NOT NULL UNIQUE,
-    domicilio_fiscal TEXT NOT NULL DEFAULT '',
+    cuit TEXT NOT NULL DEFAULT '',
     email TEXT NOT NULL DEFAULT '',
     numero_contacto TEXT NOT NULL DEFAULT '',
     es_cliente_directo INTEGER NOT NULL DEFAULT 1,
@@ -141,6 +141,7 @@ CREATE INDEX IF NOT EXISTS idx_viajes_estado ON viajes(estado);
 
 POST_MIGRATION_SQL = """
 CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
+CREATE INDEX IF NOT EXISTS idx_clientes_cuit ON clientes(cuit);
 CREATE INDEX IF NOT EXISTS idx_clientes_email ON clientes(email);
 CREATE INDEX IF NOT EXISTS idx_clientes_cliente_padre_id ON clientes(cliente_padre_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cargas_codigo_contenedor
@@ -175,28 +176,28 @@ SEED_SQL = """
 INSERT OR IGNORE INTO clientes (
     id,
     nombre,
-    domicilio_fiscal,
+    cuit,
     email,
     numero_contacto
 ) VALUES
     (
         1,
         'Romero e hijos',
-        'Domicilio fiscal pendiente',
+        '',
         'administracion@romero.local',
         ''
     ),
     (
         2,
         'Cliente Sur',
-        'Domicilio fiscal pendiente',
+        '',
         'contacto@clientesur.local',
         ''
     ),
     (
         3,
         'Proveedor Norte',
-        'Domicilio fiscal pendiente',
+        '',
         'contacto@proveedornorte.local',
         ''
     );
@@ -362,10 +363,8 @@ def clear_database(database_path: Path) -> None:
 def _migrate_clientes(connection: sqlite3.Connection) -> None:
     columns = _table_columns(connection, "clientes")
 
-    if "domicilio_fiscal" not in columns:
-        connection.execute(
-            "ALTER TABLE clientes ADD COLUMN domicilio_fiscal TEXT NOT NULL DEFAULT ''"
-        )
+    if "cuit" not in columns:
+        connection.execute("ALTER TABLE clientes ADD COLUMN cuit TEXT NOT NULL DEFAULT ''")
     if "email" not in columns:
         connection.execute("ALTER TABLE clientes ADD COLUMN email TEXT NOT NULL DEFAULT ''")
     if "numero_contacto" not in columns:

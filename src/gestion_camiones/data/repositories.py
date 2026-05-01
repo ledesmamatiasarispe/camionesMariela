@@ -77,6 +77,7 @@ class ViajeRepository:
         if search.strip():
             query += """
                 WHERE clientes.nombre LIKE ?
+                   OR clientes.cuit LIKE ?
                    OR clientes.email LIKE ?
                    OR clientes.numero_contacto LIKE ?
                    OR cliente_padre.nombre LIKE ?
@@ -110,6 +111,7 @@ class ViajeRepository:
             """
             pattern = f"%{search.strip()}%"
             params = (
+                pattern,
                 pattern,
                 pattern,
                 pattern,
@@ -398,7 +400,7 @@ class ClienteRepository:
             SELECT
                 clientes.id,
                 clientes.nombre,
-                clientes.domicilio_fiscal,
+                clientes.cuit,
                 clientes.email,
                 clientes.numero_contacto,
                 COALESCE(clientes.es_cliente_directo, 1) AS es_cliente_directo,
@@ -424,7 +426,7 @@ class ClienteRepository:
             Cliente(
                 id=row["id"],
                 nombre=row["nombre"],
-                domicilio_fiscal=row["domicilio_fiscal"],
+                cuit=row["cuit"],
                 email=row["email"],
                 numero_contacto=row["numero_contacto"],
                 es_cliente_directo=bool(row["es_cliente_directo"]),
@@ -439,7 +441,7 @@ class ClienteRepository:
         self,
         *,
         nombre: str,
-        domicilio_fiscal: str,
+        cuit: str,
         email: str,
         numero_contacto: str,
         es_cliente_directo: bool,
@@ -455,7 +457,7 @@ class ClienteRepository:
                 """
                 INSERT INTO clientes (
                     nombre,
-                    domicilio_fiscal,
+                    cuit,
                     email,
                     numero_contacto,
                     es_cliente_directo,
@@ -464,7 +466,7 @@ class ClienteRepository:
                 """,
                 (
                     nombre,
-                    domicilio_fiscal,
+                    cuit,
                     email,
                     numero_contacto,
                     int(es_cliente_directo),
@@ -479,7 +481,7 @@ class ClienteRepository:
         cliente_id: int,
         *,
         nombre: str,
-        domicilio_fiscal: str,
+        cuit: str,
         email: str,
         numero_contacto: str,
         es_cliente_directo: bool,
@@ -497,7 +499,7 @@ class ClienteRepository:
                 UPDATE clientes
                 SET
                     nombre = ?,
-                    domicilio_fiscal = ?,
+                    cuit = ?,
                     email = ?,
                     numero_contacto = ?,
                     es_cliente_directo = ?,
@@ -506,7 +508,7 @@ class ClienteRepository:
                 """,
                 (
                     nombre,
-                    domicilio_fiscal,
+                    cuit,
                     email,
                     numero_contacto,
                     int(es_cliente_directo),
@@ -542,7 +544,7 @@ class ClienteRepository:
             return None
         if cliente_padre_id is None:
             raise ValueError(
-                "Si el cliente no es directo, debes ingresar el ID del cliente directo."
+                "Si el cliente no es directo, debes seleccionar un intermediario."
             )
         if current_cliente_id is not None and cliente_padre_id == current_cliente_id:
             raise ValueError("El cliente no puede apuntarse a si mismo.")
@@ -552,7 +554,7 @@ class ClienteRepository:
             (cliente_padre_id,),
         ).fetchone()
         if row is None:
-            raise ValueError("El ID del cliente directo no existe.")
+            raise ValueError("El intermediario seleccionado no existe.")
         return cliente_padre_id
 
 

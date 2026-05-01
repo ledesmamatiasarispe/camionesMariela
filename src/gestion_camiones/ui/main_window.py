@@ -587,11 +587,11 @@ class MainWindow(QMainWindow):
             "Clientes",
             [
                 "Nombre",
-                "Domicilio fiscal",
+                "CUIT",
                 "Email",
                 "Contacto",
                 "Es directo",
-                "Cliente directo",
+                "Intermediario",
             ],
             self._cliente_rows(),
             create_callback=self._create_cliente,
@@ -981,7 +981,7 @@ class MainWindow(QMainWindow):
                 item.id,
                 [
                     item.etiqueta,
-                    item.domicilio_fiscal,
+                    item.cuit,
                     item.email,
                     item.numero_contacto,
                     "Si" if item.es_cliente_directo else "No",
@@ -1760,7 +1760,8 @@ class MainWindow(QMainWindow):
             str(field["label"])
             for field in fields
             if field.get("required", True)
-            and not str(values.get(str(field["key"]), "")).strip()
+            and dialog.is_field_visible(str(field["key"]))
+            and self._is_empty_record_value(values.get(str(field["key"])))
         ]
         if missing:
             QMessageBox.warning(
@@ -1770,6 +1771,15 @@ class MainWindow(QMainWindow):
             )
             return None
         return values
+
+    def _is_empty_record_value(self, value: object) -> bool:
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return not value.strip()
+        if isinstance(value, tuple | list | set):
+            return len(value) == 0
+        return False
 
     def _run_data_action(
         self,
@@ -1791,11 +1801,11 @@ class MainWindow(QMainWindow):
         def save() -> None:
             self.cliente_repository.create(
                 nombre=str(values["nombre"]).strip(),
-                domicilio_fiscal=str(values["domicilio_fiscal"]).strip(),
+                cuit=str(values["cuit"]).strip(),
                 email=str(values["email"]).strip(),
                 numero_contacto=str(values["numero_contacto"]).strip(),
                 es_cliente_directo=bool(int(values["es_cliente_directo"])),
-                cliente_padre_id=self._optional_int_from_text(values["cliente_padre_id"]),
+                cliente_padre_id=self._optional_int(values["cliente_padre_id"]),
             )
             self._refresh_object_table("Clientes")
             self._refresh_viaje_form_options()
@@ -1814,11 +1824,12 @@ class MainWindow(QMainWindow):
             self._cliente_fields(
                 {
                     "nombre": cliente.nombre,
-                    "domicilio_fiscal": cliente.domicilio_fiscal,
+                    "cuit": cliente.cuit,
                     "email": cliente.email,
                     "numero_contacto": cliente.numero_contacto,
                     "es_cliente_directo": 1 if cliente.es_cliente_directo else 0,
                     "cliente_padre_id": cliente.cliente_padre_id or "",
+                    "current_cliente_id": cliente.id,
                 }
             ),
         )
@@ -1829,11 +1840,11 @@ class MainWindow(QMainWindow):
             self.cliente_repository.update(
                 cliente_id,
                 nombre=str(values["nombre"]).strip(),
-                domicilio_fiscal=str(values["domicilio_fiscal"]).strip(),
+                cuit=str(values["cuit"]).strip(),
                 email=str(values["email"]).strip(),
                 numero_contacto=str(values["numero_contacto"]).strip(),
                 es_cliente_directo=bool(int(values["es_cliente_directo"])),
-                cliente_padre_id=self._optional_int_from_text(values["cliente_padre_id"]),
+                cliente_padre_id=self._optional_int(values["cliente_padre_id"]),
             )
             self._refresh_object_table("Clientes")
             self._refresh_table()
@@ -2308,9 +2319,9 @@ class MainWindow(QMainWindow):
         return [
             {"key": "nombre", "label": "Nombre", "value": values.get("nombre", "")},
             {
-                "key": "domicilio_fiscal",
-                "label": "Domicilio fiscal",
-                "value": values.get("domicilio_fiscal", ""),
+                "key": "cuit",
+                "label": "CUIT",
+                "value": values.get("cuit", ""),
                 "required": False,
             },
             {
@@ -2334,9 +2345,17 @@ class MainWindow(QMainWindow):
             },
             {
                 "key": "cliente_padre_id",
-                "label": "ID cliente directo/logistica",
+                "label": "Intermediario",
+                "type": "combo",
                 "value": values.get("cliente_padre_id", ""),
+                "options": self._cliente_intermediario_options(
+                    values.get("current_cliente_id")
+                ),
                 "required": False,
+                "visible_when": {
+                    "field": "es_cliente_directo",
+                    "equals": 0,
+                },
             },
         ]
 
@@ -2545,6 +2564,26 @@ class MainWindow(QMainWindow):
         if not text:
             return None
         return int(text)
+
+    def _optional_int(self, value: object) -> int | None:
+        if isinstance(value, int):
+            return value
+        if value is None:
+            return None
+        return self._optional_int_from_text(value)
+
+    def _cliente_intermediario_options(
+        self,
+        current_cliente_id: object | None = None,
+    ) -> list[tuple[str, int | None]]:
+        excluded_id = current_cliente_id if isinstance(current_cliente_id, int) else None
+        options: list[tuple[str, int | None]] = [("Seleccionar intermediario", None)]
+        options.extend(
+            (item.etiqueta, item.id)
+            for item in self.cliente_repository.list_all()
+            if item.id != excluded_id
+        )
+        return options
 
     def _current_viaje_cliente_id(self) -> int | None:
         cliente = self.form_widgets.get("cliente")
@@ -3223,6 +3262,7 @@ class RecordDialog(QDialog):
         super().__init__(parent)
         self.fields = fields
         self.widgets: dict[str, QWidget] = {}
+        self.row_labels: dict[str, QWidget] = {}
         self.check_groups: dict[str, list[tuple[QCheckBox, object]]] = {}
 
         self.setWindowTitle(title)
@@ -3290,6 +3330,12 @@ class RecordDialog(QDialog):
 
             self.widgets[key] = widget
             form.addRow(label, widget)
+            row_label = form.labelForField(widget)
+            if row_label is not None:
+                self.row_labels[key] = row_label
+
+        self._connect_visibility_rules()
+        self._apply_visibility_rules()
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -3300,6 +3346,10 @@ class RecordDialog(QDialog):
 
         layout.addLayout(form)
         layout.addWidget(buttons)
+
+    def is_field_visible(self, key: str) -> bool:
+        widget = self.widgets.get(key)
+        return widget is not None and widget.isVisible()
 
     def values(self) -> dict[str, object]:
         values: dict[str, object] = {}
@@ -3323,6 +3373,37 @@ class RecordDialog(QDialog):
             elif isinstance(widget, QComboBox):
                 values[key] = widget.currentData()
         return values
+
+    def _connect_visibility_rules(self) -> None:
+        dependent_keys = {
+            str(field.get("visible_when", {}).get("field"))
+            for field in self.fields
+            if isinstance(field.get("visible_when"), dict)
+        }
+        for key in dependent_keys:
+            widget = self.widgets.get(key)
+            if isinstance(widget, QComboBox):
+                widget.currentIndexChanged.connect(
+                    lambda *_args: self._apply_visibility_rules()
+                )
+
+    def _apply_visibility_rules(self) -> None:
+        for field in self.fields:
+            key = str(field["key"])
+            visible_when = field.get("visible_when")
+            visible = True
+            if isinstance(visible_when, dict):
+                parent_key = str(visible_when.get("field"))
+                expected = visible_when.get("equals")
+                parent_widget = self.widgets.get(parent_key)
+                if isinstance(parent_widget, QComboBox):
+                    visible = parent_widget.currentData() == expected
+            widget = self.widgets.get(key)
+            if widget is not None:
+                widget.setVisible(visible)
+            label = self.row_labels.get(key)
+            if label is not None:
+                label.setVisible(visible)
 
 
 class MetricCard(QFrame):
