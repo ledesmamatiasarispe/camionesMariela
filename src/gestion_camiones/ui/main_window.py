@@ -156,6 +156,32 @@ MONTH_NAMES = (
     "Diciembre",
 )
 
+VIAJE_FORM_FIELDS = (
+    ("fecha", "Fecha"),
+    ("cliente", "Cliente"),
+    ("carta_porte", "N° Carta de Porte"),
+    ("carga", "Carga"),
+    ("lugar_carga", "Lugar carga"),
+    ("lugar_descarga", "L.Descarga"),
+    ("observaciones", "Observaciones"),
+    ("chofer", "Chofer"),
+    ("tipo_carga", "T.Carga"),
+    ("camion", "Camion"),
+    ("semi", "Semi"),
+    ("tarifa", "Tarifa"),
+    ("fecha_descarga_tarifa", "F.Desc tarifa"),
+    ("demora", "Demora"),
+    ("fecha_descarga_demora", "F.Desc demora"),
+    ("vacio", "Vacio"),
+    ("fecha_descarga_vacio", "F.Desc vacio"),
+    ("gas_oil_lts", "Gas oil (lts)"),
+    ("peajes", "Peajes"),
+)
+VIAJE_FORM_LABELS = dict(VIAJE_FORM_FIELDS)
+VIAJE_CONFIGURABLE_FIELD_KEYS = tuple(
+    key for key, _label in VIAJE_FORM_FIELDS if key != "cliente"
+)
+
 
 class UpdateSignals(QObject):
     finished = Signal(object, bool)
@@ -172,7 +198,7 @@ class MainWindow(QMainWindow):
         self.database_path = database_path
         self.settings_path = get_settings_path()
         self.app_settings = load_app_settings(self.settings_path)
-        self.company_name = self.app_settings["company_name"]
+        self.company_name = str(self.app_settings["company_name"])
         self.update_signals = UpdateSignals()
         self.update_signals.finished.connect(self._handle_update_check_finished)
         self.update_signals.failed.connect(self._handle_update_check_failed)
@@ -222,6 +248,7 @@ class MainWindow(QMainWindow):
         self.print_rows: list[ViajeResumen] = []
         self.company_name_input: QLineEdit | None = None
         self.form_widgets: dict[str, QWidget] = {}
+        self.viaje_form_row_labels: dict[str, QWidget] = {}
 
         self.setWindowTitle("Gestion de viajes")
         self.resize(1180, 760)
@@ -405,8 +432,10 @@ class MainWindow(QMainWindow):
         fecha.setDate(QDate.currentDate())
 
         cliente = self._build_combo(
-            [(item.etiqueta, item.id) for item in self.cliente_repository.list_all()]
+            [("Seleccionar cliente", None)]
+            + [(item.etiqueta, item.id) for item in self.cliente_repository.list_all()]
         )
+        cliente.currentIndexChanged.connect(self._apply_viaje_field_visibility)
         carta_porte = QLineEdit()
         carga = self._build_combo(
             [
@@ -495,26 +524,26 @@ class MainWindow(QMainWindow):
             "peajes": peajes,
         }
 
-        left_form.addRow("Fecha", fecha)
-        left_form.addRow("Cliente", cliente)
-        left_form.addRow("N° Carta de Porte", carta_porte)
-        left_form.addRow("Carga", carga)
-        left_form.addRow("Lugar carga", lugar_carga)
-        left_form.addRow("L.Descarga", lugar_descarga)
-        left_form.addRow("Observaciones", observaciones)
-        left_form.addRow("Chofer", chofer)
-        left_form.addRow("T.Carga", tipo_carga)
+        self._add_viaje_form_row(left_form, "fecha", fecha)
+        self._add_viaje_form_row(left_form, "cliente", cliente)
+        self._add_viaje_form_row(left_form, "carta_porte", carta_porte)
+        self._add_viaje_form_row(left_form, "carga", carga)
+        self._add_viaje_form_row(left_form, "lugar_carga", lugar_carga)
+        self._add_viaje_form_row(left_form, "lugar_descarga", lugar_descarga)
+        self._add_viaje_form_row(left_form, "observaciones", observaciones)
+        self._add_viaje_form_row(left_form, "chofer", chofer)
+        self._add_viaje_form_row(left_form, "tipo_carga", tipo_carga)
 
-        right_form.addRow("Camion", camion)
-        right_form.addRow("Semi", semi)
-        right_form.addRow("Tarifa", tarifa)
-        right_form.addRow("F.Desc tarifa", fecha_descarga_tarifa)
-        right_form.addRow("Demora", demora)
-        right_form.addRow("F.Desc demora", fecha_descarga_demora)
-        right_form.addRow("Vacio", vacio)
-        right_form.addRow("F.Desc vacio", fecha_descarga_vacio)
-        right_form.addRow("Gas oil (lts)", gas_oil_lts)
-        right_form.addRow("Peajes", peajes)
+        self._add_viaje_form_row(right_form, "camion", camion)
+        self._add_viaje_form_row(right_form, "semi", semi)
+        self._add_viaje_form_row(right_form, "tarifa", tarifa)
+        self._add_viaje_form_row(right_form, "fecha_descarga_tarifa", fecha_descarga_tarifa)
+        self._add_viaje_form_row(right_form, "demora", demora)
+        self._add_viaje_form_row(right_form, "fecha_descarga_demora", fecha_descarga_demora)
+        self._add_viaje_form_row(right_form, "vacio", vacio)
+        self._add_viaje_form_row(right_form, "fecha_descarga_vacio", fecha_descarga_vacio)
+        self._add_viaje_form_row(right_form, "gas_oil_lts", gas_oil_lts)
+        self._add_viaje_form_row(right_form, "peajes", peajes)
 
         form_grid.addLayout(left_form, 0, 0)
         form_grid.addLayout(right_form, 0, 1)
@@ -526,6 +555,7 @@ class MainWindow(QMainWindow):
         scroll.setWidget(panel)
 
         layout.addWidget(scroll, stretch=1)
+        self._apply_viaje_field_visibility()
         return tab
 
     def _build_history_tab(self) -> QWidget:
@@ -537,6 +567,17 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_monthly_billing_panel())
         layout.addWidget(self._build_table_panel(), stretch=1)
         return tab
+
+    def _add_viaje_form_row(
+        self,
+        form: QFormLayout,
+        field_key: str,
+        widget: QWidget,
+    ) -> None:
+        form.addRow(VIAJE_FORM_LABELS[field_key], widget)
+        label = form.labelForField(widget)
+        if label is not None:
+            self.viaje_form_row_labels[field_key] = label
 
     def _build_clients_tab(self) -> QWidget:
         return self._build_static_table_tab(
@@ -553,6 +594,9 @@ class MainWindow(QMainWindow):
             create_callback=self._create_cliente,
             edit_callback=self._edit_cliente,
             delete_callback=self._delete_cliente,
+            extra_actions=[
+                ("Configurar campos carga", self._configure_cliente_viaje_fields)
+            ],
         )
 
     def _build_lugares_tab(self) -> QWidget:
@@ -1013,6 +1057,7 @@ class MainWindow(QMainWindow):
         create_callback: Callable[[], None] | None = None,
         edit_callback: Callable[[], None] | None = None,
         delete_callback: Callable[[], None] | None = None,
+        extra_actions: list[tuple[str, Callable[[], None]]] | None = None,
     ) -> QWidget:
         tab = QWidget()
         layout = QVBoxLayout(tab)
@@ -1027,6 +1072,7 @@ class MainWindow(QMainWindow):
             create_callback=create_callback,
             edit_callback=edit_callback,
             delete_callback=delete_callback,
+            extra_actions=extra_actions,
         )
         layout.addWidget(panel, stretch=1)
         return tab
@@ -1041,6 +1087,7 @@ class MainWindow(QMainWindow):
         create_callback: Callable[[], None] | None = None,
         edit_callback: Callable[[], None] | None = None,
         delete_callback: Callable[[], None] | None = None,
+        extra_actions: list[tuple[str, Callable[[], None]]] | None = None,
     ) -> QWidget:
         panel = QFrame()
         panel.setObjectName("panel")
@@ -1064,6 +1111,7 @@ class MainWindow(QMainWindow):
                     create_callback=create_callback,
                     edit_callback=edit_callback,
                     delete_callback=delete_callback,
+                    extra_actions=extra_actions,
                 )
             )
 
@@ -1617,6 +1665,7 @@ class MainWindow(QMainWindow):
         create_callback: Callable[[], None] | None = None,
         edit_callback: Callable[[], None] | None = None,
         delete_callback: Callable[[], None] | None = None,
+        extra_actions: list[tuple[str, Callable[[], None]]] | None = None,
     ) -> QWidget:
         actions = QWidget()
         actions.setObjectName("actionButtons")
@@ -1650,6 +1699,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(create_button)
         layout.addWidget(edit_button)
         layout.addWidget(delete_button)
+        for label, callback in extra_actions or []:
+            button = QPushButton(label)
+            button.clicked.connect(callback)
+            layout.addWidget(button)
         return actions
 
     def _show_pending_action(self, section_label: str, action: str) -> None:
@@ -1762,6 +1815,55 @@ class MainWindow(QMainWindow):
                 lambda: self.cliente_repository.delete(cliente_id),
                 lambda: self._refresh_object_table("Clientes"),
             )
+
+    def _configure_cliente_viaje_fields(self) -> None:
+        cliente_id = self._selected_object_id("Clientes")
+        if cliente_id is None:
+            return
+
+        cliente = self._find_by_id(self.cliente_repository.list_all(), cliente_id)
+        cliente_label = getattr(cliente, "etiqueta", f"Cliente {cliente_id}")
+        enabled_fields = self._enabled_viaje_field_keys(cliente_id)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Configurar campos carga")
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(12)
+
+        title = QLabel(f"Campos visibles para {cliente_label}")
+        title.setObjectName("sectionTitle")
+        layout.addWidget(title)
+
+        checkbox_widgets: dict[str, QCheckBox] = {}
+        for field_key in VIAJE_CONFIGURABLE_FIELD_KEYS:
+            checkbox = QCheckBox(VIAJE_FORM_LABELS[field_key])
+            checkbox.setChecked(field_key in enabled_fields)
+            checkbox_widgets[field_key] = checkbox
+            layout.addWidget(checkbox)
+
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        selected_fields = [
+            field_key
+            for field_key, checkbox in checkbox_widgets.items()
+            if checkbox.isChecked()
+        ]
+        self._set_cliente_viaje_fields(cliente_id, selected_fields)
+        self._apply_viaje_field_visibility()
+        QMessageBox.information(
+            self,
+            "Campos carga",
+            "Configuracion guardada para el cliente seleccionado.",
+        )
 
     def _create_lugar(self) -> None:
         values = self._record_values("Crear lugar", self._lugar_fields())
@@ -2410,6 +2512,60 @@ class MainWindow(QMainWindow):
             return None
         return int(text)
 
+    def _current_viaje_cliente_id(self) -> int | None:
+        cliente = self.form_widgets.get("cliente")
+        if not isinstance(cliente, QComboBox):
+            return None
+        value = cliente.currentData()
+        return value if isinstance(value, int) else None
+
+    def _enabled_viaje_field_keys(self, cliente_id: int | None) -> set[str]:
+        if cliente_id is None:
+            return set()
+
+        settings = self.app_settings.get("cliente_viaje_fields", {})
+        configured_fields = None
+        if isinstance(settings, dict):
+            configured_fields = settings.get(str(cliente_id))
+
+        if not isinstance(configured_fields, list):
+            return set(VIAJE_CONFIGURABLE_FIELD_KEYS)
+
+        allowed_fields = set(VIAJE_CONFIGURABLE_FIELD_KEYS)
+        return {
+            str(field_key)
+            for field_key in configured_fields
+            if str(field_key) in allowed_fields
+        }
+
+    def _set_cliente_viaje_fields(
+        self,
+        cliente_id: int,
+        selected_fields: list[str],
+    ) -> None:
+        settings = self.app_settings.get("cliente_viaje_fields", {})
+        if not isinstance(settings, dict):
+            settings = {}
+
+        settings[str(cliente_id)] = [
+            field_key
+            for field_key in VIAJE_CONFIGURABLE_FIELD_KEYS
+            if field_key in selected_fields
+        ]
+        self.app_settings["cliente_viaje_fields"] = settings
+        save_app_settings(self.settings_path, self.app_settings)
+
+    def _apply_viaje_field_visibility(self) -> None:
+        cliente_id = self._current_viaje_cliente_id()
+        enabled_fields = self._enabled_viaje_field_keys(cliente_id)
+
+        for field_key, widget in self.form_widgets.items():
+            visible = field_key == "cliente" or field_key in enabled_fields
+            widget.setVisible(visible)
+            label = self.viaje_form_row_labels.get(field_key)
+            if label is not None:
+                label.setVisible(visible)
+
     def _save_viaje(self) -> None:
         try:
             viaje = self._collect_viaje_form()
@@ -2865,7 +3021,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_viaje_form_options(self) -> None:
         combo_sources = {
-            "cliente": [
+            "cliente": [("Seleccionar cliente", None)]
+            + [
                 (item.etiqueta, item.id) for item in self.cliente_repository.list_all()
             ],
             "carga": [
@@ -2921,6 +3078,8 @@ class MainWindow(QMainWindow):
                 peaje_item.setCheckState(Qt.CheckState.Unchecked)
                 peaje_item.setData(Qt.ItemDataRole.UserRole, item.id)
                 peajes.addItem(peaje_item)
+
+        self._apply_viaje_field_visibility()
 
     def _lugar_options(self, rol: str) -> list[tuple[str, object]]:
         lugares = self.lugar_repository.list_by_viaje_usage(rol)
