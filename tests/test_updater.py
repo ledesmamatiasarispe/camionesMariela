@@ -10,6 +10,8 @@ from gestion_camiones.services.updater import (
     ReleaseAsset,
     ReleaseInfo,
     _parse_checksum_content,
+    _write_macos_installer_script,
+    _write_windows_installer_script,
     backups_dir,
     create_database_backup,
     select_checksum_asset,
@@ -149,6 +151,32 @@ class SelectReleaseAssetTests(unittest.TestCase):
 
             self.assertIsNotNone(row)
             self.assertEqual(row[0], "Viaje A")
+
+    def test_writes_macos_installer_script_for_dmg(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            package_path = temp_path / "GestionCamiones-macOS-AppleSilicon.dmg"
+            package_path.write_bytes(b"fake")
+
+            script_path = _write_macos_installer_script(package_path, temp_path)
+
+            content = script_path.read_text(encoding="utf-8")
+            self.assertIn("hdiutil attach", content)
+            self.assertIn(str(package_path), content)
+            self.assertIn("open \"$TARGET_APP\"", content)
+
+    def test_writes_windows_installer_script_for_zip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            package_path = temp_path / "GestionCamiones-Windows-x64.zip"
+            package_path.write_bytes(b"fake")
+
+            script_path = _write_windows_installer_script(package_path, temp_path)
+
+            content = script_path.read_text(encoding="utf-8")
+            self.assertIn("Expand-Archive", content)
+            self.assertIn(str(package_path), content)
+            self.assertIn("Start-Process -FilePath $ExecutablePath", content)
 
 
 if __name__ == "__main__":

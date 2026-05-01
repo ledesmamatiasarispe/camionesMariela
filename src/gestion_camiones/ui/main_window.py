@@ -8,6 +8,7 @@ from threading import Thread
 from PySide6.QtCore import QDate, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -71,10 +72,12 @@ from gestion_camiones.services.updater import (
     ReleaseInfo,
     UpdateCheckError,
     UpdateDownloadError,
+    UpdateInstallError,
     backups_dir,
     check_latest_release,
     create_database_backup,
     download_release_asset,
+    launch_update_installer,
     select_checksum_asset,
     select_release_asset,
     updates_dir,
@@ -1375,20 +1378,51 @@ class MainWindow(QMainWindow):
         message.setInformativeText(
             f"Paquete: {asset_name}\n"
             f"Backup de base local: {backup_path}\n\n"
-            "La base de datos queda en la carpeta de datos del usuario y no se reemplaza "
-            "por el instalador."
+            "La app se cerrara para reemplazar los archivos. La base de datos queda "
+            "en la carpeta de datos del usuario y no se reemplaza por el instalador."
         )
-        open_button = message.addButton("Abrir paquete", QMessageBox.ButtonRole.AcceptRole)
+        install_button = message.addButton("Instalar ahora", QMessageBox.ButtonRole.AcceptRole)
+        open_button = message.addButton("Abrir paquete", QMessageBox.ButtonRole.ActionRole)
         folder_button = message.addButton("Ver carpeta", QMessageBox.ButtonRole.ActionRole)
         message.addButton("Cerrar", QMessageBox.ButtonRole.RejectRole)
-        message.setDefaultButton(open_button)
+        message.setDefaultButton(install_button)
         message.exec()
 
         clicked = message.clickedButton()
-        if clicked == open_button:
+        if clicked == install_button:
+            self._install_downloaded_update(package_path)
+        elif clicked == open_button:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(package_path)))
         elif clicked == folder_button:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(package_path.parent)))
+
+    def _install_downloaded_update(self, package_path: Path) -> None:
+        try:
+            script_path = launch_update_installer(package_path, get_app_data_dir())
+        except UpdateInstallError as exc:
+            QMessageBox.warning(
+                self,
+                "Instalacion automatica",
+                f"No se pudo preparar la instalacion automatica.\n{exc}",
+            )
+            return
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                "Instalacion automatica",
+                f"No se pudo iniciar el instalador automatico.\n{exc}",
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Instalacion automatica",
+            "La app se cerrara para instalar la actualizacion y volver a abrirse.\n"
+            f"Registro tecnico: {script_path}",
+        )
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     def _handle_update_download_failed(self, error_message: str) -> None:
         self.update_download_in_progress = False

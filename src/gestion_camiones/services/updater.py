@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import shutil
 import sqlite3
 import ssl
+import subprocess
+import sys
+import textwrap
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
@@ -40,6 +44,10 @@ class UpdateCheckError(RuntimeError):
 
 class UpdateDownloadError(RuntimeError):
     """Error al descargar una actualizacion."""
+
+
+class UpdateInstallError(RuntimeError):
+    """Error al preparar la instalacion automatica."""
 
 
 def check_latest_release(owner: str, repo: str, current_version: str) -> ReleaseInfo | None:
@@ -127,6 +135,44 @@ def backups_dir(app_data_dir: Path) -> Path:
     path = app_data_dir / "backups"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def launch_update_installer(package_path: Path, app_data_dir: Path) -> Path:
+    system = platform.system()
+    scripts_dir = app_data_dir / "updates" / "installers"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+
+    if system == "Darwin":
+        script_path = _write_macos_installer_script(package_path, scripts_dir)
+        subprocess.Popen(
+            ["/bin/bash", str(script_path)],
+            close_fds=True,
+            start_new_session=True,
+        )
+        return script_path
+
+    if system == "Windows":
+        script_path = _write_windows_installer_script(package_path, scripts_dir)
+        creationflags = 0
+        if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+            creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
+        if hasattr(subprocess, "DETACHED_PROCESS"):
+            creationflags |= subprocess.DETACHED_PROCESS
+        subprocess.Popen(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script_path),
+            ],
+            close_fds=True,
+            creationflags=creationflags,
+        )
+        return script_path
+
+    raise UpdateInstallError("La instalacion automatica no esta disponible en este sistema.")
 
 
 def create_database_backup(database_path: Path, destination_dir: Path) -> Path:
@@ -250,6 +296,142 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _write_macos_installer_script(package_path: Path, scripts_dir: Path) -> Path:
+    if package_path.suffix.lower() != ".dmg":
+        raise UpdateInstallError("macOS requiere un paquete .dmg para instalacion automatica.")
+
+    target_app = _current_macos_app_path() or Path("/Applications/Gestion Camiones.app")
+    log_path = scripts_dir / "install-macos.log"
+    script_path = scripts_dir / "install-macos.sh"
+    script = f"""\
+#!/usr/bin/env bash
+set -euo pipefail
+
+PACKAGE={_shell_quote(package_path)}
+TARGET_APP={_shell_quote(target_app)}
+CURRENT_PID="{os.getpid()}"
+LOG_PATH={_shell_quote(log_path)}
+
+exec >> "$LOG_PATH" 2>&1
+echo "Iniciando instalacion automatica macOS: $(date)"
+
+while kill -0 "$CURRENT_PID" 2>/dev/null; do
+  sleep 1
+done
+
+MOUNT_DIR="$(mktemp -d)"
+cleanup() {{
+  hdiutil detach "$MOUNT_DIR" -quiet || true
+  rm -rf "$MOUNT_DIR"
+}}
+trap cleanup EXIT
+
+hdiutil attach "$PACKAGE" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
+SOURCE_APP="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d | head -n 1)"
+if [[ -z "$SOURCE_APP" ]]; then
+  echo "No se encontro una app dentro del DMG."
+  exit 1
+fi
+
+TARGET_PARENT="$(dirname "$TARGET_APP")"
+if [[ -w "$TARGET_PARENT" ]]; then
+  rm -rf "$TARGET_APP"
+  ditto "$SOURCE_APP" "$TARGET_APP"
+  xattr -dr com.apple.quarantine "$TARGET_APP" || true
+else
+  osascript - "$SOURCE_APP" "$TARGET_APP" <<'OSA'
+on run argv
+  set sourceApp to item 1 of argv
+  set targetApp to item 2 of argv
+  set removeCommand to "/bin/rm -rf " & quoted form of targetApp
+  set copyCommand to "/usr/bin/ditto " & quoted form of sourceApp & " " & quoted form of targetApp
+  set xattrCommand to "/usr/bin/xattr -dr com.apple.quarantine "
+  set quarantineCommand to xattrCommand & quoted form of targetApp & " || true"
+  set installCommand to removeCommand & "; " & copyCommand & "; " & quarantineCommand
+  do shell script installCommand with administrator privileges
+end run
+OSA
+fi
+
+open "$TARGET_APP"
+echo "Instalacion automatica macOS finalizada: $(date)"
+"""
+    script_path.write_text(textwrap.dedent(script), encoding="utf-8")
+    script_path.chmod(0o700)
+    return script_path
+
+
+def _write_windows_installer_script(package_path: Path, scripts_dir: Path) -> Path:
+    if package_path.suffix.lower() != ".zip":
+        raise UpdateInstallError("Windows requiere un paquete .zip para instalacion automatica.")
+
+    install_dir = Path(sys.executable).resolve().parent
+    executable_path = Path(sys.executable).resolve()
+    staging_dir = scripts_dir / "windows-staging"
+    log_path = scripts_dir / "install-windows.log"
+    script_path = scripts_dir / "install-windows.ps1"
+    script = f"""\
+$ErrorActionPreference = "Stop"
+$Package = {_powershell_quote(package_path)}
+$InstallDir = {_powershell_quote(install_dir)}
+$ExecutablePath = {_powershell_quote(executable_path)}
+$StagingDir = {_powershell_quote(staging_dir)}
+$LogPath = {_powershell_quote(log_path)}
+$CurrentPid = {os.getpid()}
+
+Start-Transcript -Path $LogPath -Append | Out-Null
+try {{
+    Write-Output "Iniciando instalacion automatica Windows: $(Get-Date)"
+    Wait-Process -Id $CurrentPid -ErrorAction SilentlyContinue
+
+    if (Test-Path -LiteralPath $StagingDir) {{
+        Remove-Item -LiteralPath $StagingDir -Recurse -Force
+    }}
+    New-Item -ItemType Directory -Path $StagingDir -Force | Out-Null
+    Expand-Archive -LiteralPath $Package -DestinationPath $StagingDir -Force
+
+    $SourceDir = Join-Path $StagingDir "GestionCamiones"
+    if (-not (Test-Path -LiteralPath $SourceDir)) {{
+        $SourceExe = Get-ChildItem -LiteralPath $StagingDir -Recurse -Filter "GestionCamiones.exe" |
+            Select-Object -First 1
+        if ($null -eq $SourceExe) {{
+            throw "No se encontro GestionCamiones.exe dentro del ZIP."
+        }}
+        $SourceDir = $SourceExe.Directory.FullName
+    }}
+
+    Copy-Item -Path (Join-Path $SourceDir "*") -Destination $InstallDir -Recurse -Force
+    Start-Process -FilePath $ExecutablePath
+    Write-Output "Instalacion automatica Windows finalizada: $(Get-Date)"
+}} finally {{
+    Stop-Transcript | Out-Null
+}}
+"""
+    script_path.write_text(textwrap.dedent(script), encoding="utf-8")
+    return script_path
+
+
+def _current_macos_app_path() -> Path | None:
+    executable_path = Path(sys.executable).resolve()
+    try:
+        app_path = executable_path.parents[2]
+    except IndexError:
+        return None
+    if app_path.suffix == ".app" and app_path.exists():
+        return app_path
+    return None
+
+
+def _shell_quote(path: Path) -> str:
+    value = str(path)
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def _powershell_quote(path: Path) -> str:
+    value = str(path)
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _open_url(request: Request, *, timeout: int):
