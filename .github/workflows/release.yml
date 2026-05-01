@@ -164,7 +164,7 @@ jobs:
             ${{ matrix.artifact_name }}.sha256
 
       - name: Attach artifact to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             ${{ matrix.artifact_name }}
