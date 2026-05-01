@@ -58,7 +58,7 @@ exe = EXE(
 if sys.platform == "darwin":
     app = BUNDLE(
         exe,
-        name="GestionCamiones.app",
+        name="Gestion Camiones.app",
         icon=None,
         bundle_identifier="com.romero.gestioncamiones",
         version=app_version,

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_PATH="${1:-dist/GestionCamiones.app}"
+APP_PATH="${1:-dist/Gestion Camiones.app}"
 DMG_NAME="${2:-GestionCamiones-macOS.dmg}"
-VOLUME_NAME="${3:-Gestion Camiones}"
+VOLUME_NAME="${3:-Instalar Gestion Camiones}"
 
 if [[ ! -d "${APP_PATH}" ]]; then
   echo "No se encontro ${APP_PATH}. Ejecuta PyInstaller primero." >&2
@@ -16,8 +16,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cp -R "${APP_PATH}" "${STAGING_DIR}/"
+APP_BUNDLE_NAME="$(basename "${APP_PATH}")"
+
+cp -R "${APP_PATH}" "${STAGING_DIR}/${APP_BUNDLE_NAME}"
 ln -s /Applications "${STAGING_DIR}/Applications"
+cat > "${STAGING_DIR}/1 - INSTALAR GESTION CAMIONES.txt" <<EOF
+1. Arrastra "${APP_BUNDLE_NAME}" a "Applications".
+2. Espera a que termine la copia.
+3. Abre la app desde Finder > Applications.
+4. Despues de copiarla, puedes expulsar este disco.
+EOF
 
 hdiutil create \
   -volname "${VOLUME_NAME}" \

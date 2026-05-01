@@ -83,8 +83,8 @@ jobs:
           codesign --force --deep --options runtime --timestamp \
             --entitlements packaging/macos-entitlements.plist \
             --sign "$APPLE_DEVELOPER_ID_APP_IDENTITY" \
-            dist/GestionCamiones.app
-          codesign --verify --deep --strict --verbose=2 dist/GestionCamiones.app
+            "dist/Gestion Camiones.app"
+          codesign --verify --deep --strict --verbose=2 "dist/Gestion Camiones.app"
 
       - name: Package Windows artifact
         if: runner.os == 'Windows'
@@ -93,7 +93,7 @@ jobs:
 
       - name: Package macOS artifact
         if: runner.os == 'macOS'
-        run: bash packaging/build_macos_dmg.sh dist/GestionCamiones.app ${{ matrix.artifact_name }}
+        run: bash packaging/build_macos_dmg.sh "dist/Gestion Camiones.app" ${{ matrix.artifact_name }}
 
       - name: Codesign macOS disk image
         if: runner.os == 'macOS'
