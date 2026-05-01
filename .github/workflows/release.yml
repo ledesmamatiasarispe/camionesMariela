@@ -112,11 +112,16 @@ jobs:
       - name: Package Windows artifact
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path dist/GestionCamiones -DestinationPath ${{ matrix.artifact_name }}
+        run: |
+          Compress-Archive -Path dist/GestionCamiones -DestinationPath ${{ matrix.artifact_name }}
+          $hash = (Get-FileHash -Algorithm SHA256 ${{ matrix.artifact_name }}).Hash.ToLowerInvariant()
+          "$hash  ${{ matrix.artifact_name }}" | Out-File -Encoding ascii "${{ matrix.artifact_name }}.sha256"
 
       - name: Package macOS artifact
         if: runner.os == 'macOS'
-        run: bash packaging/build_macos_dmg.sh "dist/Gestion Camiones.app" ${{ matrix.artifact_name }}
+        run: |
+          bash packaging/build_macos_dmg.sh "dist/Gestion Camiones.app" ${{ matrix.artifact_name }}
+          shasum -a 256 ${{ matrix.artifact_name }} > ${{ matrix.artifact_name }}.sha256
 
       - name: Codesign macOS disk image
         if: runner.os == 'macOS'
@@ -154,10 +159,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.artifact_name }}
+            ${{ matrix.artifact_name }}.sha256
 
       - name: Attach artifact to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.artifact_name }}
+          files: |
+            ${{ matrix.artifact_name }}
+            ${{ matrix.artifact_name }}.sha256
           generate_release_notes: true

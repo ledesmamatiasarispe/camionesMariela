@@ -75,6 +75,7 @@ from gestion_camiones.services.updater import (
     check_latest_release,
     create_database_backup,
     download_release_asset,
+    select_checksum_asset,
     select_release_asset,
     updates_dir,
 )
@@ -1263,9 +1264,15 @@ class MainWindow(QMainWindow):
                 self.database_path,
                 backups_dir(app_data_dir),
             )
+            checksum_asset = select_checksum_asset(release, asset)
+            if checksum_asset is None:
+                raise UpdateDownloadError(
+                    "La release no incluye el archivo de checksum requerido para este paquete."
+                )
             package_path = download_release_asset(
                 asset,
                 updates_dir(app_data_dir) / release.version,
+                checksum_asset=checksum_asset,
                 progress_callback=self.update_signals.download_progress.emit,
             )
         except (UpdateDownloadError, OSError) as exc:

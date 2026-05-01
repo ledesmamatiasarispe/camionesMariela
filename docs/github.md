@@ -54,6 +54,12 @@ Artefactos esperados:
 - `GestionCamiones-macOS-AppleSilicon.dmg`
 - `GestionCamiones-macOS-Intel.dmg`
 
+El workflow tambien adjunta un checksum SHA-256 por paquete:
+
+- `GestionCamiones-Windows-x64.zip.sha256`
+- `GestionCamiones-macOS-AppleSilicon.dmg.sha256`
+- `GestionCamiones-macOS-Intel.dmg.sha256`
+
 ## Firma y notarizacion de macOS
 
 Para que el instalador de macOS se pueda abrir sin advertencias fuertes del sistema, conviene firmar y notarizar la app desde GitHub Actions.
@@ -78,5 +84,9 @@ El selector de descarga ya espera estos nombres de paquetes para elegir automati
 - `GestionCamiones-Windows-x64.zip`
 - `GestionCamiones-macOS-AppleSilicon.dmg`
 - `GestionCamiones-macOS-Intel.dmg`
+
+Para completar la actualizacion, cada paquete debe tener su `.sha256`
+correspondiente en la misma release. Si falta, la app cancela la descarga para
+evitar abrir un paquete sin validacion de integridad.
 
 Los datos actuales del repositorio son `ledesmamatiasarispe/camionesMariela`.

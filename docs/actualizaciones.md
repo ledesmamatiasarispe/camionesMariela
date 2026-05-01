@@ -55,9 +55,9 @@ Cada release deberia incluir:
 
 - Paquete para Windows.
 - Paquete para macOS.
+- Checksum SHA-256 para cada paquete.
 - Notas de version.
 - Fecha de publicacion.
-- Checksums, si se decide validar integridad.
 
 ## Repositorio
 
@@ -79,7 +79,7 @@ Recomendaciones:
 
 - Descargar solo desde GitHub Releases del repositorio oficial.
 - Validar nombre de archivo esperado por sistema operativo.
-- Considerar checksums para validar descargas.
+- Validar SHA-256 del paquete descargado antes de abrirlo.
 - Firmar los builds cuando el proyecto pase a uso real.
 - No ejecutar scripts descargados dinamicamente.
 
@@ -88,3 +88,7 @@ Recomendaciones:
 Existe un servicio en `src/gestion_camiones/services/updater.py` para consultar
 la ultima release de GitHub, seleccionar el paquete correcto, descargarlo y
 crear un backup SQLite previo a la instalacion.
+
+El workflow de release publica, junto a cada paquete, un archivo con el mismo
+nombre terminado en `.sha256`. La app exige ese checksum para validar la
+descarga antes de ofrecer abrir el instalador o paquete portable.

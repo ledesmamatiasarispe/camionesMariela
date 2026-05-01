@@ -9,8 +9,10 @@ from pathlib import Path
 from gestion_camiones.services.updater import (
     ReleaseAsset,
     ReleaseInfo,
+    _parse_checksum_content,
     backups_dir,
     create_database_backup,
+    select_checksum_asset,
     select_release_asset,
     updates_dir,
 )
@@ -92,6 +94,35 @@ class SelectReleaseAssetTests(unittest.TestCase):
         asset = select_release_asset(release, system="Darwin", machine="arm64")
 
         self.assertIsNone(asset)
+
+    def test_selects_checksum_asset_for_package(self) -> None:
+        package = ReleaseAsset("GestionCamiones-Windows-x64.zip", "https://example.com/win", 1)
+        checksum = ReleaseAsset(
+            "GestionCamiones-Windows-x64.zip.sha256",
+            "https://example.com/win.sha256",
+            1,
+        )
+        release = ReleaseInfo(
+            version="0.2.0",
+            name="v0.2.0",
+            html_url="https://example.com/release",
+            notes="",
+            assets=(package, checksum),
+        )
+
+        asset = select_checksum_asset(release, package)
+
+        self.assertEqual(asset, checksum)
+
+    def test_parse_checksum_content_accepts_standard_sha256_format(self) -> None:
+        checksum = "a" * 64
+
+        parsed_checksum = _parse_checksum_content(
+            f"{checksum}  GestionCamiones-Windows-x64.zip\n",
+            "GestionCamiones-Windows-x64.zip",
+        )
+
+        self.assertEqual(parsed_checksum, checksum)
 
     def test_update_and_backup_dirs_are_created_under_app_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

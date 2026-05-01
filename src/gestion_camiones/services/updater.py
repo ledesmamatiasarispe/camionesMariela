@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import platform
 import shutil
@@ -88,6 +89,31 @@ def select_release_asset(
     return ranked_assets[0][1]
 
 
+def select_checksum_asset(release: ReleaseInfo, package_asset: ReleaseAsset) -> ReleaseAsset | None:
+    expected_names = (
+        f"{package_asset.name}.sha256",
+        f"{package_asset.name}.sha256sum",
+        f"{package_asset.name}.sha256.txt",
+    )
+    assets_by_name = {asset.name.lower(): asset for asset in release.assets}
+
+    for expected_name in expected_names:
+        asset = assets_by_name.get(expected_name.lower())
+        if asset is not None:
+            return asset
+
+    package_stem = package_asset.name.lower()
+    for asset in release.assets:
+        asset_name = asset.name.lower()
+        if (
+            asset_name.endswith((".sha256", ".sha256sum", ".sha256.txt"))
+            and package_stem in asset_name
+        ):
+            return asset
+
+    return None
+
+
 def updates_dir(app_data_dir: Path) -> Path:
     path = app_data_dir / "updates"
     path.mkdir(parents=True, exist_ok=True)
@@ -122,6 +148,7 @@ def download_release_asset(
     asset: ReleaseAsset,
     destination_dir: Path,
     *,
+    checksum_asset: ReleaseAsset | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
 ) -> Path:
     destination_dir.mkdir(parents=True, exist_ok=True)
@@ -155,7 +182,71 @@ def download_release_asset(
             pass
         raise UpdateDownloadError("No se pudo descargar la actualizacion.") from exc
 
+    if checksum_asset is not None:
+        _verify_asset_checksum(output_path, checksum_asset)
+
     return output_path
+
+
+def _verify_asset_checksum(package_path: Path, checksum_asset: ReleaseAsset) -> None:
+    expected_checksum = _download_expected_checksum(checksum_asset, package_path.name)
+    actual_checksum = _sha256_file(package_path)
+
+    if actual_checksum.lower() != expected_checksum.lower():
+        try:
+            package_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise UpdateDownloadError(
+            "La actualizacion descargada no coincide con el checksum publicado."
+        )
+
+
+def _download_expected_checksum(checksum_asset: ReleaseAsset, package_name: str) -> str:
+    request = Request(
+        checksum_asset.download_url,
+        headers={"User-Agent": "gestion-camiones-updater"},
+    )
+
+    try:
+        with urlopen(request, timeout=30) as response:
+            content = response.read(1024 * 32).decode("utf-8", errors="replace")
+    except (OSError, HTTPError, URLError) as exc:
+        raise UpdateDownloadError("No se pudo descargar el checksum de la actualizacion.") from exc
+
+    checksum = _parse_checksum_content(content, package_name)
+    if checksum is None:
+        raise UpdateDownloadError("El checksum publicado no tiene un formato valido.")
+    return checksum
+
+
+def _parse_checksum_content(content: str, package_name: str) -> str | None:
+    normalized_package_name = Path(package_name).name
+    for line in content.splitlines():
+        stripped_line = line.strip()
+        if not stripped_line:
+            continue
+
+        parts = stripped_line.replace("*", " ").split()
+        if not parts:
+            continue
+
+        checksum = parts[0]
+        if len(checksum) != 64 or any(char not in "0123456789abcdefABCDEF" for char in checksum):
+            continue
+
+        if len(parts) == 1 or normalized_package_name in parts[1:]:
+            return checksum
+
+    return None
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _fetch_latest_release(owner: str, repo: str) -> dict[str, Any] | None:
