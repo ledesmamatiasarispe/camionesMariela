@@ -225,6 +225,9 @@ class MainWindow(QMainWindow):
         self.search_input: QLineEdit | None = None
         self.table: QTableWidget | None = None
         self.object_tables: dict[str, QTableWidget] = {}
+        self.sidebar: QFrame | None = None
+        self.sidebar_visible = True
+        self.sidebar_toggle_button: QPushButton | None = None
         self.peajes_detail_panel: QFrame | None = None
         self.peajes_detail_title: QLabel | None = None
         self.peajes_detail_table: QTableWidget | None = None
@@ -377,10 +380,11 @@ class MainWindow(QMainWindow):
     def _build_sidebar(self) -> QWidget:
         sidebar = QFrame()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(236)
+        sidebar.setFixedWidth(188)
+        self.sidebar = sidebar
 
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(18, 22, 18, 18)
+        layout.setContentsMargins(14, 18, 14, 14)
         layout.setSpacing(8)
 
         brand = QLabel("Gestion Viajes")
@@ -452,6 +456,12 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(24, 0, 24, 0)
         layout.setSpacing(14)
 
+        sidebar_toggle = QPushButton("Ocultar pestañas")
+        sidebar_toggle.setObjectName("sidebarToggleButton")
+        sidebar_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        sidebar_toggle.clicked.connect(self._toggle_sidebar)
+        self.sidebar_toggle_button = sidebar_toggle
+
         title_block = QVBoxLayout()
         title_block.setSpacing(2)
         title = QLabel("Cargar viaje")
@@ -481,12 +491,22 @@ class MainWindow(QMainWindow):
         save_button.clicked.connect(self._save_viaje)
         self.save_button = save_button
 
+        layout.addWidget(sidebar_toggle)
         layout.addLayout(title_block)
         layout.addStretch()
         layout.addWidget(self.search_input)
         layout.addWidget(new_button)
         layout.addWidget(save_button)
         return topbar
+
+    def _toggle_sidebar(self) -> None:
+        self.sidebar_visible = not self.sidebar_visible
+        if self.sidebar is not None:
+            self.sidebar.setVisible(self.sidebar_visible)
+        if self.sidebar_toggle_button is not None:
+            self.sidebar_toggle_button.setText(
+                "Ocultar pestañas" if self.sidebar_visible else "Mostrar pestañas"
+            )
 
     def _build_viaje_form_tab(self) -> QWidget:
         tab = QWidget()
@@ -766,28 +786,36 @@ class MainWindow(QMainWindow):
 
         header = QFrame()
         header.setObjectName("panelHeader")
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(16, 0, 16, 0)
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(16, 8, 16, 8)
+        header_layout.setSpacing(8)
         title = QLabel("Peajes")
         title.setObjectName("sectionTitle")
         self.peajes_detail_title = title
         header_layout.addWidget(title)
-        header_layout.addStretch()
 
-        for label, callback in (
-            ("Cerrar lista", self._close_empresa_peajes),
-            ("Editar peaje", self._edit_peaje),
-            ("Eliminar peaje", self._delete_peaje),
-            ("Actualizar varios peajes", self._bulk_update_peajes),
-            ("Crear nuevo peaje", self._create_peaje),
+        for row_actions in (
+            (
+                ("Cerrar lista", self._close_empresa_peajes, ""),
+                ("Actualizar varios peajes", self._bulk_update_peajes, ""),
+            ),
+            (
+                ("Editar peaje", self._edit_peaje, ""),
+                ("Eliminar peaje", self._delete_peaje, "dangerButton"),
+                ("Nuevo peaje", self._create_peaje, "primaryButton"),
+            ),
         ):
-            button = QPushButton(label)
-            if label == "Eliminar peaje":
-                button.setObjectName("dangerButton")
-            elif label == "Crear nuevo peaje":
-                button.setObjectName("primaryButton")
-            button.clicked.connect(callback)
-            header_layout.addWidget(button)
+            button_row = QHBoxLayout()
+            button_row.setContentsMargins(0, 0, 0, 0)
+            button_row.setSpacing(8)
+            for label, callback, object_name in row_actions:
+                button = QPushButton(label)
+                if object_name:
+                    button.setObjectName(object_name)
+                button.clicked.connect(callback)
+                button_row.addWidget(button)
+            button_row.addStretch()
+            header_layout.addLayout(button_row)
 
         table = QTableWidget(0, 4)
         table.setHorizontalHeaderLabels(["ID", "Nombre", "Direccion", "Costo"])
@@ -4007,6 +4035,12 @@ QPushButton#navButton:hover,
 QPushButton#navButtonActive {
     background: rgba(255, 255, 255, 0.12);
     color: #ffffff;
+}
+
+QPushButton#sidebarToggleButton {
+    min-height: 34px;
+    border-radius: 8px;
+    padding: 0 10px;
 }
 
 QFrame#topbar,
