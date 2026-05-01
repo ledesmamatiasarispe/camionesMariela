@@ -39,8 +39,8 @@ from PySide6.QtWidgets import (
 
 from gestion_camiones import __version__
 from gestion_camiones.config import GITHUB_OWNER, GITHUB_REPO
-from gestion_camiones.data.paths import get_settings_path
 from gestion_camiones.data.models import ViajeCreate, ViajeResumen
+from gestion_camiones.data.paths import get_settings_path
 from gestion_camiones.data.repositories import (
     CargaRepository,
     ChoferRepository,
@@ -52,6 +52,11 @@ from gestion_camiones.data.repositories import (
     ViajeRepository,
 )
 from gestion_camiones.data.schema import clear_database
+from gestion_camiones.services.app_settings import (
+    load_app_settings,
+    normalize_company_name,
+    save_app_settings,
+)
 from gestion_camiones.services.report_exporter import (
     build_monthly_report_summary,
     build_ricco_export_filename,
@@ -59,11 +64,6 @@ from gestion_camiones.services.report_exporter import (
     export_monthly_report_pdf,
     export_ricco_report_excel,
     find_ricco_template_path,
-)
-from gestion_camiones.services.app_settings import (
-    load_app_settings,
-    normalize_company_name,
-    save_app_settings,
 )
 from gestion_camiones.services.updater import (
     ReleaseInfo,

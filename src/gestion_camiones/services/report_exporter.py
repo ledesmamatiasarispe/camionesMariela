@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import sys
 from copy import copy
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-import sys
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill

@@ -5,7 +5,6 @@ from pathlib import Path
 
 from gestion_camiones.config import APP_NAME
 
-
 DEFAULT_COMPANY_NAME = APP_NAME
 
 

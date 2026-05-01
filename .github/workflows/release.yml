@@ -21,13 +21,15 @@ jobs:
             artifact_name: GestionCamiones-Windows-x64.zip
             pyinstaller_target_arch: ""
           - label: macOS Apple Silicon
-            os: macos-latest
+            os: macos-15
             artifact_name: GestionCamiones-macOS-AppleSilicon.dmg
             pyinstaller_target_arch: arm64
+            expected_macos_arch: arm64
           - label: macOS Intel
             os: macos-15-intel
             artifact_name: GestionCamiones-macOS-Intel.dmg
             pyinstaller_target_arch: x86_64
+            expected_macos_arch: x86_64
 
     steps:
       - name: Checkout
@@ -71,13 +73,28 @@ jobs:
           PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_target_arch }}
         run: pyinstaller packaging/gestion-camiones.spec
 
+      - name: Verify macOS app architecture
+        if: runner.os == 'macOS'
+        env:
+          EXPECTED_MACOS_ARCH: ${{ matrix.expected_macos_arch }}
+        run: |
+          APP_EXECUTABLE="dist/Gestion Camiones.app/Contents/MacOS/GestionCamiones"
+          file "$APP_EXECUTABLE"
+          if ! file "$APP_EXECUTABLE" | grep -q "$EXPECTED_MACOS_ARCH"; then
+            echo "Expected $APP_EXECUTABLE to contain architecture $EXPECTED_MACOS_ARCH."
+            exit 1
+          fi
+          "$APP_EXECUTABLE" --version
+
       - name: Codesign macOS app
         if: runner.os == 'macOS'
         env:
           APPLE_DEVELOPER_ID_APP_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_APP_IDENTITY }}
         run: |
           if [[ -z "$APPLE_DEVELOPER_ID_APP_IDENTITY" ]]; then
-            echo "No Apple signing identity configured. Skipping app codesign."
+            echo "No Apple signing identity configured. Using ad-hoc codesign."
+            codesign --force --deep --sign - "dist/Gestion Camiones.app"
+            codesign --verify --deep --strict --verbose=2 "dist/Gestion Camiones.app"
             exit 0
           fi
           codesign --force --deep --options runtime --timestamp \
@@ -85,6 +102,12 @@ jobs:
             --sign "$APPLE_DEVELOPER_ID_APP_IDENTITY" \
             "dist/Gestion Camiones.app"
           codesign --verify --deep --strict --verbose=2 "dist/Gestion Camiones.app"
+
+      - name: Verify signed macOS app
+        if: runner.os == 'macOS'
+        run: |
+          codesign --verify --deep --strict --verbose=2 "dist/Gestion Camiones.app"
+          "dist/Gestion Camiones.app/Contents/MacOS/GestionCamiones" --version
 
       - name: Package Windows artifact
         if: runner.os == 'Windows'

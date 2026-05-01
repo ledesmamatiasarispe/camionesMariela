@@ -5,7 +5,6 @@ from pathlib import Path
 
 from PySide6.QtGui import QColor, QPalette
 
-
 DEFAULT_THEME: dict[str, str | int] = {
     "app_background": "#f5f7f8",
     "text_color": "#182026",

@@ -67,6 +67,18 @@ Para macOS, el paquete final esperado es un `.dmg` por arquitectura:
 
 Para que el instalador se abra mejor en versiones recientes de macOS, conviene publicar builds firmados y notarizados.
 
+En Apple Silicon, el workflow de release debe verificar que el ejecutable dentro
+del `.app` sea `arm64` y que responda `--version` antes de publicar el `.dmg`.
+Si no hay certificado de Apple configurado, la app se firma ad-hoc para evitar
+un bundle sin firma, aunque Gatekeeper puede seguir mostrando advertencias hasta
+que exista firma Developer ID y notarizacion.
+
+Si la app no inicia, revisar el archivo:
+
+```text
+~/Library/Application Support/gestion_camiones/startup-error.log
+```
+
 ## Prueba obligatoria antes de entregar
 
 Antes de considerar una version lista para uso, probar:
