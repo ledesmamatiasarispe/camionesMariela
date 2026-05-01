@@ -25,11 +25,6 @@ jobs:
             artifact_name: GestionCamiones-macOS-AppleSilicon.dmg
             pyinstaller_target_arch: arm64
             expected_macos_arch: arm64
-          - label: macOS Intel
-            os: macos-15-intel
-            artifact_name: GestionCamiones-macOS-Intel.dmg
-            pyinstaller_target_arch: x86_64
-            expected_macos_arch: x86_64
 
     steps:
       - name: Checkout
