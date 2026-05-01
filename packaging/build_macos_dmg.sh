@@ -27,9 +27,18 @@ cat > "${STAGING_DIR}/1 - INSTALAR GESTION CAMIONES.txt" <<EOF
 4. Despues de copiarla, puedes expulsar este disco.
 EOF
 
-hdiutil create \
-  -volname "${VOLUME_NAME}" \
-  -srcfolder "${STAGING_DIR}" \
-  -ov \
-  -format UDZO \
-  "${DMG_NAME}"
+create_dmg() {
+  hdiutil create \
+    -volname "${VOLUME_NAME}" \
+    -srcfolder "${STAGING_DIR}" \
+    -ov \
+    -format UDZO \
+    "${DMG_NAME}"
+}
+
+create_dmg || {
+  echo "Primer intento de crear DMG fallo; reintentando..." >&2
+  rm -f "${DMG_NAME}"
+  sleep 5
+  create_dmg
+}
