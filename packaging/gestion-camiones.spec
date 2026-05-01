@@ -56,8 +56,17 @@ exe = EXE(
 )
 
 if sys.platform == "darwin":
-    app = BUNDLE(
+    coll = COLLECT(
         exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name="GestionCamiones",
+    )
+    app = BUNDLE(
+        coll,
         name="Gestion Camiones.app",
         icon=None,
         bundle_identifier="com.romero.gestioncamiones",
