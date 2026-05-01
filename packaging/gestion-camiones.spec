@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 import sys
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 project_root = Path(SPECPATH).parent
@@ -17,17 +17,19 @@ exec(
 )
 app_version = version_scope["__version__"]
 hiddenimports = collect_submodules("PySide6")
+datas = collect_data_files("certifi")
+datas += [
+    (
+        str(project_root / "src" / "gestion_camiones" / "assets" / "RICCO.xlsx"),
+        "gestion_camiones/assets",
+    ),
+]
 
 a = Analysis(
     [str(project_root / "src" / "gestion_camiones" / "main.py")],
     pathex=[str(project_root / "src")],
     binaries=[],
-    datas=[
-        (
-            str(project_root / "src" / "gestion_camiones" / "assets" / "RICCO.xlsx"),
-            "gestion_camiones/assets",
-        ),
-    ],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

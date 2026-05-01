@@ -5,6 +5,7 @@ import json
 import platform
 import shutil
 import sqlite3
+import ssl
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+import certifi
 
 
 @dataclass(frozen=True)
@@ -162,7 +165,7 @@ def download_release_asset(
     )
 
     try:
-        with urlopen(request, timeout=30) as response:
+        with _open_url(request, timeout=30) as response:
             total_size = int(response.headers.get("Content-Length") or asset.size or 0)
             downloaded = 0
             with partial_path.open("wb") as file:
@@ -209,7 +212,7 @@ def _download_expected_checksum(checksum_asset: ReleaseAsset, package_name: str)
     )
 
     try:
-        with urlopen(request, timeout=30) as response:
+        with _open_url(request, timeout=30) as response:
             content = response.read(1024 * 32).decode("utf-8", errors="replace")
     except (OSError, HTTPError, URLError) as exc:
         raise UpdateDownloadError("No se pudo descargar el checksum de la actualizacion.") from exc
@@ -249,6 +252,11 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _open_url(request: Request, *, timeout: int):
+    context = ssl.create_default_context(cafile=certifi.where())
+    return urlopen(request, timeout=timeout, context=context)
+
+
 def _fetch_latest_release(owner: str, repo: str) -> dict[str, Any] | None:
     url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
     request = Request(
@@ -261,14 +269,15 @@ def _fetch_latest_release(owner: str, repo: str) -> dict[str, Any] | None:
     )
 
     try:
-        with urlopen(request, timeout=10) as response:
+        with _open_url(request, timeout=10) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         if exc.code == 404:
             return None
         raise UpdateCheckError(f"GitHub respondio con error HTTP {exc.code}.") from exc
     except URLError as exc:
-        raise UpdateCheckError("No se pudo conectar con GitHub.") from exc
+        reason = getattr(exc, "reason", exc)
+        raise UpdateCheckError(f"No se pudo conectar con GitHub. Detalle: {reason}") from exc
     except json.JSONDecodeError as exc:
         raise UpdateCheckError("GitHub devolvio una respuesta invalida.") from exc
 
