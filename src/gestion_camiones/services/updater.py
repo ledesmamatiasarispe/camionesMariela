@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import json
 import platform
+import shutil
+import sqlite3
+from collections.abc import Callable
+from contextlib import closing
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -26,6 +32,10 @@ class ReleaseInfo:
 
 class UpdateCheckError(RuntimeError):
     """Error al consultar actualizaciones."""
+
+
+class UpdateDownloadError(RuntimeError):
+    """Error al descargar una actualizacion."""
 
 
 def check_latest_release(owner: str, repo: str, current_version: str) -> ReleaseInfo | None:
@@ -78,6 +88,76 @@ def select_release_asset(
     return ranked_assets[0][1]
 
 
+def updates_dir(app_data_dir: Path) -> Path:
+    path = app_data_dir / "updates"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def backups_dir(app_data_dir: Path) -> Path:
+    path = app_data_dir / "backups"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def create_database_backup(database_path: Path, destination_dir: Path) -> Path:
+    if not database_path.exists():
+        raise UpdateDownloadError("No se encontro la base de datos local para respaldar.")
+
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = destination_dir / f"{database_path.stem}-backup-{timestamp}{database_path.suffix}"
+
+    try:
+        with closing(sqlite3.connect(database_path)) as source:
+            with closing(sqlite3.connect(backup_path)) as destination:
+                source.backup(destination)
+    except sqlite3.Error as exc:
+        raise UpdateDownloadError("No se pudo crear el backup de la base local.") from exc
+
+    return backup_path
+
+
+def download_release_asset(
+    asset: ReleaseAsset,
+    destination_dir: Path,
+    *,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> Path:
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    file_name = _safe_asset_filename(asset.name)
+    output_path = destination_dir / file_name
+    partial_path = output_path.with_suffix(output_path.suffix + ".part")
+
+    request = Request(
+        asset.download_url,
+        headers={"User-Agent": "gestion-camiones-updater"},
+    )
+
+    try:
+        with urlopen(request, timeout=30) as response:
+            total_size = int(response.headers.get("Content-Length") or asset.size or 0)
+            downloaded = 0
+            with partial_path.open("wb") as file:
+                while True:
+                    chunk = response.read(1024 * 256)
+                    if not chunk:
+                        break
+                    file.write(chunk)
+                    downloaded += len(chunk)
+                    if progress_callback is not None:
+                        progress_callback(downloaded, total_size)
+        shutil.move(str(partial_path), output_path)
+    except (OSError, HTTPError, URLError) as exc:
+        try:
+            partial_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise UpdateDownloadError("No se pudo descargar la actualizacion.") from exc
+
+    return output_path
+
+
 def _fetch_latest_release(owner: str, repo: str) -> dict[str, Any] | None:
     url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
     request = Request(
@@ -114,6 +194,15 @@ def _version_tuple(version: str) -> tuple[int, ...]:
         except ValueError:
             parts.append(0)
     return tuple(parts)
+
+
+def _safe_asset_filename(value: str) -> str:
+    file_name = Path(value).name.strip()
+    if not file_name:
+        raise UpdateDownloadError("El archivo de actualizacion no tiene nombre valido.")
+    for invalid_char in '<>:"/\\|?*':
+        file_name = file_name.replace(invalid_char, "_")
+    return file_name
 
 
 def _asset_match_score(asset_name: str, system: str, machine: str) -> int:

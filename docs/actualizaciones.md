@@ -13,7 +13,8 @@ La app debe poder:
 - Consultar si hay una version nueva en GitHub Releases.
 - Comparar la version instalada contra la ultima version publicada.
 - Mostrar al usuario que hay una actualizacion disponible.
-- Descargar o abrir el paquete correspondiente.
+- Descargar el paquete correspondiente para el sistema y arquitectura.
+- Crear un backup de la base SQLite local antes de abrir el instalador.
 - Registrar errores de actualizacion de forma comprensible.
 
 ## Alcance posterior
@@ -24,8 +25,23 @@ Para una primera version estable, se recomienda:
 
 - Detectar actualizacion automaticamente.
 - Avisar al usuario.
-- Descargar el instalador o abrir la pagina de descarga.
+- Descargar el instalador dentro de la carpeta de datos del usuario.
 - Guiar el reemplazo de la version instalada.
+
+La app no guarda la base dentro del paquete instalado. La base SQLite vive en la
+carpeta de datos del usuario, por lo que reemplazar la aplicacion no deberia
+pisar los datos locales. Antes de abrir un instalador descargado, la app genera
+un respaldo adicional en:
+
+```text
+<carpeta de datos de usuario>/backups
+```
+
+Los paquetes descargados se guardan en:
+
+```text
+<carpeta de datos de usuario>/updates/<version>
+```
 
 ## GitHub Releases
 
@@ -69,6 +85,6 @@ Recomendaciones:
 
 ## Implementacion inicial
 
-Existe un servicio base en `src/gestion_camiones/services/updater.py` para consultar la ultima release de GitHub y compararla contra la version instalada.
-
-Todavia falta conectar ese servicio a la interfaz grafica y definir el repositorio oficial.
+Existe un servicio en `src/gestion_camiones/services/updater.py` para consultar
+la ultima release de GitHub, seleccionar el paquete correcto, descargarlo y
+crear un backup SQLite previo a la instalacion.

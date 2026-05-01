@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+import sqlite3
+import tempfile
 import unittest
+from contextlib import closing
+from pathlib import Path
 
-from gestion_camiones.services.updater import ReleaseAsset, ReleaseInfo, select_release_asset
+from gestion_camiones.services.updater import (
+    ReleaseAsset,
+    ReleaseInfo,
+    backups_dir,
+    create_database_backup,
+    select_release_asset,
+    updates_dir,
+)
 
 
 class SelectReleaseAssetTests(unittest.TestCase):
@@ -81,6 +92,32 @@ class SelectReleaseAssetTests(unittest.TestCase):
         asset = select_release_asset(release, system="Darwin", machine="arm64")
 
         self.assertIsNone(asset)
+
+    def test_update_and_backup_dirs_are_created_under_app_data(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_data_dir = Path(temp_dir)
+
+            self.assertEqual(updates_dir(app_data_dir), app_data_dir / "updates")
+            self.assertEqual(backups_dir(app_data_dir), app_data_dir / "backups")
+            self.assertTrue((app_data_dir / "updates").is_dir())
+            self.assertTrue((app_data_dir / "backups").is_dir())
+
+    def test_create_database_backup_preserves_local_data(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            database_path = temp_path / "gestion_camiones.sqlite3"
+            with closing(sqlite3.connect(database_path)) as connection:
+                connection.execute("CREATE TABLE viajes (id INTEGER PRIMARY KEY, nombre TEXT)")
+                connection.execute("INSERT INTO viajes (nombre) VALUES (?)", ("Viaje A",))
+                connection.commit()
+
+            backup_path = create_database_backup(database_path, temp_path / "backups")
+
+            with closing(sqlite3.connect(backup_path)) as connection:
+                row = connection.execute("SELECT nombre FROM viajes WHERE id = 1").fetchone()
+
+            self.assertIsNotNone(row)
+            self.assertEqual(row[0], "Viaje A")
 
 
 if __name__ == "__main__":
