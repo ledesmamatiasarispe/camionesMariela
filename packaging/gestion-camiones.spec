@@ -22,7 +22,12 @@ a = Analysis(
     [str(project_root / "src" / "gestion_camiones" / "main.py")],
     pathex=[str(project_root / "src")],
     binaries=[],
-    datas=[],
+    datas=[
+        (
+            str(project_root / "src" / "gestion_camiones" / "assets" / "RICCO.xlsx"),
+            "gestion_camiones/assets",
+        ),
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

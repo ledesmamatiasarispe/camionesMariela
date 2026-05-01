@@ -31,3 +31,6 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"gestion_camiones.assets" = ["*.xlsx"]

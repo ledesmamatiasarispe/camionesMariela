@@ -30,5 +30,9 @@ def get_theme_path() -> Path:
     return get_app_data_dir() / "theme.json"
 
 
+def get_settings_path() -> Path:
+    return get_app_data_dir() / "settings.json"
+
+
 def _safe_app_dir_name(name: str) -> str:
     return name.replace(" ", "_").lower()

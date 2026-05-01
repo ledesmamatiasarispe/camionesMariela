@@ -27,7 +27,14 @@ class ViajeRepository:
             SELECT
                 viajes.id,
                 COALESCE(viajes.fecha, '') AS fecha,
-                clientes.nombre AS cliente,
+                CASE
+                    WHEN COALESCE(clientes.es_cliente_directo, 1) = 0
+                         AND cliente_padre.nombre IS NOT NULL
+                    THEN clientes.nombre || ' (' || cliente_padre.nombre || ')'
+                    ELSE clientes.nombre
+                END AS cliente,
+                COALESCE(clientes.es_cliente_directo, 1) AS cliente_es_directo,
+                COALESCE(viajes.carta_porte, '') AS carta_porte,
                 cargas.codigo_contenedor AS carga,
                 lugar_carga.nombre AS lugar_carga,
                 lugar_descarga.nombre AS lugar_descarga,
@@ -54,6 +61,8 @@ class ViajeRepository:
                 viajes.estado
             FROM viajes
             JOIN clientes ON clientes.id = viajes.cliente_id
+            LEFT JOIN clientes AS cliente_padre
+                ON cliente_padre.id = clientes.cliente_padre_id
             JOIN cargas ON cargas.id = viajes.carga_id
             JOIN lugares AS lugar_carga ON lugar_carga.id = viajes.lugar_carga_id
             JOIN lugares AS lugar_descarga ON lugar_descarga.id = viajes.lugar_descarga_id
@@ -70,6 +79,8 @@ class ViajeRepository:
                 WHERE clientes.nombre LIKE ?
                    OR clientes.email LIKE ?
                    OR clientes.numero_contacto LIKE ?
+                   OR cliente_padre.nombre LIKE ?
+                   OR viajes.carta_porte LIKE ?
                    OR cargas.codigo_contenedor LIKE ?
                    OR viajes.observaciones LIKE ?
                    OR lugar_carga.nombre LIKE ?
@@ -120,6 +131,8 @@ class ViajeRepository:
                 pattern,
                 pattern,
                 pattern,
+                pattern,
+                pattern,
             )
 
         query += " ORDER BY viajes.fecha, viajes.fecha_descarga_tarifa, viajes.id"
@@ -137,6 +150,7 @@ class ViajeRepository:
                 INSERT INTO viajes (
                     fecha,
                     cliente_id,
+                    carta_porte,
                     carga_id,
                     lugar_carga_id,
                     lugar_descarga_id,
@@ -154,11 +168,12 @@ class ViajeRepository:
                     peajes,
                     observaciones,
                     estado
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     viaje.fecha,
                     viaje.cliente_id,
+                    viaje.carta_porte,
                     viaje.carga_id,
                     viaje.lugar_carga_id,
                     viaje.lugar_descarga_id,
@@ -197,6 +212,7 @@ class ViajeRepository:
         viaje_id: int,
         *,
         fecha: str,
+        carta_porte: str,
         observaciones: str,
         tarifa: float,
         fecha_descarga_tarifa: str,
@@ -213,6 +229,7 @@ class ViajeRepository:
                 UPDATE viajes
                 SET
                     fecha = ?,
+                    carta_porte = ?,
                     observaciones = ?,
                     tarifa = ?,
                     fecha_descarga_tarifa = ?,
@@ -227,6 +244,7 @@ class ViajeRepository:
                 """,
                 (
                     fecha,
+                    carta_porte,
                     observaciones,
                     tarifa,
                     fecha_descarga_tarifa,
@@ -378,21 +396,26 @@ class ClienteRepository:
     def list_all(self, include_inactive: bool = False) -> list[Cliente]:
         query = """
             SELECT
-                id,
-                nombre,
-                domicilio_fiscal,
-                email,
-                numero_contacto,
-                activo
+                clientes.id,
+                clientes.nombre,
+                clientes.domicilio_fiscal,
+                clientes.email,
+                clientes.numero_contacto,
+                COALESCE(clientes.es_cliente_directo, 1) AS es_cliente_directo,
+                clientes.cliente_padre_id,
+                COALESCE(cliente_padre.nombre, '') AS cliente_padre_nombre,
+                clientes.activo
             FROM clientes
+            LEFT JOIN clientes AS cliente_padre
+                ON cliente_padre.id = clientes.cliente_padre_id
         """
         params: tuple[int, ...] = ()
 
         if not include_inactive:
-            query += " WHERE activo = ?"
+            query += " WHERE clientes.activo = ?"
             params = (1,)
 
-        query += " ORDER BY nombre"
+        query += " ORDER BY clientes.nombre"
 
         with closing(self._connect()) as connection:
             rows = connection.execute(query, params).fetchall()
@@ -404,6 +427,9 @@ class ClienteRepository:
                 domicilio_fiscal=row["domicilio_fiscal"],
                 email=row["email"],
                 numero_contacto=row["numero_contacto"],
+                es_cliente_directo=bool(row["es_cliente_directo"]),
+                cliente_padre_id=row["cliente_padre_id"],
+                cliente_padre_nombre=row["cliente_padre_nombre"],
                 activo=bool(row["activo"]),
             )
             for row in rows
@@ -416,18 +442,34 @@ class ClienteRepository:
         domicilio_fiscal: str,
         email: str,
         numero_contacto: str,
+        es_cliente_directo: bool,
+        cliente_padre_id: int | None,
     ) -> int:
         with closing(self._connect()) as connection:
+            normalized_parent_id = self._normalize_cliente_padre_id(
+                connection,
+                cliente_padre_id,
+                es_cliente_directo=es_cliente_directo,
+            )
             cursor = connection.execute(
                 """
                 INSERT INTO clientes (
                     nombre,
                     domicilio_fiscal,
                     email,
-                    numero_contacto
-                ) VALUES (?, ?, ?, ?)
+                    numero_contacto,
+                    es_cliente_directo,
+                    cliente_padre_id
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (nombre, domicilio_fiscal, email, numero_contacto),
+                (
+                    nombre,
+                    domicilio_fiscal,
+                    email,
+                    numero_contacto,
+                    int(es_cliente_directo),
+                    normalized_parent_id,
+                ),
             )
             connection.commit()
             return int(cursor.lastrowid)
@@ -440,8 +482,16 @@ class ClienteRepository:
         domicilio_fiscal: str,
         email: str,
         numero_contacto: str,
+        es_cliente_directo: bool,
+        cliente_padre_id: int | None,
     ) -> None:
         with closing(self._connect()) as connection:
+            normalized_parent_id = self._normalize_cliente_padre_id(
+                connection,
+                cliente_padre_id,
+                es_cliente_directo=es_cliente_directo,
+                current_cliente_id=cliente_id,
+            )
             connection.execute(
                 """
                 UPDATE clientes
@@ -449,10 +499,20 @@ class ClienteRepository:
                     nombre = ?,
                     domicilio_fiscal = ?,
                     email = ?,
-                    numero_contacto = ?
+                    numero_contacto = ?,
+                    es_cliente_directo = ?,
+                    cliente_padre_id = ?
                 WHERE id = ?
                 """,
-                (nombre, domicilio_fiscal, email, numero_contacto, cliente_id),
+                (
+                    nombre,
+                    domicilio_fiscal,
+                    email,
+                    numero_contacto,
+                    int(es_cliente_directo),
+                    normalized_parent_id,
+                    cliente_id,
+                ),
             )
             connection.commit()
 
@@ -469,6 +529,31 @@ class ClienteRepository:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
+
+    def _normalize_cliente_padre_id(
+        self,
+        connection: sqlite3.Connection,
+        cliente_padre_id: int | None,
+        *,
+        es_cliente_directo: bool,
+        current_cliente_id: int | None = None,
+    ) -> int | None:
+        if es_cliente_directo:
+            return None
+        if cliente_padre_id is None:
+            raise ValueError(
+                "Si el cliente no es directo, debes ingresar el ID del cliente directo."
+            )
+        if current_cliente_id is not None and cliente_padre_id == current_cliente_id:
+            raise ValueError("El cliente no puede apuntarse a si mismo.")
+
+        row = connection.execute(
+            "SELECT id FROM clientes WHERE id = ?",
+            (cliente_padre_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("El ID del cliente directo no existe.")
+        return cliente_padre_id
 
 
 class CargaRepository:

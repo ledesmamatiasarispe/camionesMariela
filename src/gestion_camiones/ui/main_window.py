@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 
 from gestion_camiones import __version__
 from gestion_camiones.config import GITHUB_OWNER, GITHUB_REPO
+from gestion_camiones.data.paths import get_settings_path
 from gestion_camiones.data.models import ViajeCreate, ViajeResumen
 from gestion_camiones.data.repositories import (
     CargaRepository,
@@ -53,8 +54,16 @@ from gestion_camiones.data.repositories import (
 from gestion_camiones.data.schema import clear_database
 from gestion_camiones.services.report_exporter import (
     build_monthly_report_summary,
+    build_ricco_export_filename,
     export_monthly_report_excel,
     export_monthly_report_pdf,
+    export_ricco_report_excel,
+    find_ricco_template_path,
+)
+from gestion_camiones.services.app_settings import (
+    load_app_settings,
+    normalize_company_name,
+    save_app_settings,
 )
 from gestion_camiones.services.updater import (
     ReleaseInfo,
@@ -150,6 +159,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.viaje_repository = viaje_repository
         self.database_path = database_path
+        self.settings_path = get_settings_path()
+        self.app_settings = load_app_settings(self.settings_path)
+        self.company_name = self.app_settings["company_name"]
         self.update_signals = UpdateSignals()
         self.update_signals.finished.connect(self._handle_update_check_finished)
         self.update_signals.failed.connect(self._handle_update_check_failed)
@@ -192,6 +204,7 @@ class MainWindow(QMainWindow):
         self.print_from_card: QFrame | None = None
         self.print_to_card: QFrame | None = None
         self.print_rows: list[ViajeResumen] = []
+        self.company_name_input: QLineEdit | None = None
         self.form_widgets: dict[str, QWidget] = {}
 
         self.setWindowTitle("Gestion de viajes")
@@ -376,8 +389,9 @@ class MainWindow(QMainWindow):
         fecha.setDate(QDate.currentDate())
 
         cliente = self._build_combo(
-            [(item.nombre, item.id) for item in self.cliente_repository.list_all()]
+            [(item.etiqueta, item.id) for item in self.cliente_repository.list_all()]
         )
+        carta_porte = QLineEdit()
         carga = self._build_combo(
             [
                 (item.codigo_contenedor, item.id)
@@ -446,6 +460,7 @@ class MainWindow(QMainWindow):
         self.form_widgets = {
             "fecha": fecha,
             "cliente": cliente,
+            "carta_porte": carta_porte,
             "carga": carga,
             "lugar_carga": lugar_carga,
             "lugar_descarga": lugar_descarga,
@@ -466,6 +481,7 @@ class MainWindow(QMainWindow):
 
         left_form.addRow("Fecha", fecha)
         left_form.addRow("Cliente", cliente)
+        left_form.addRow("N° Carta de Porte", carta_porte)
         left_form.addRow("Carga", carga)
         left_form.addRow("Lugar carga", lugar_carga)
         left_form.addRow("L.Descarga", lugar_descarga)
@@ -509,7 +525,14 @@ class MainWindow(QMainWindow):
     def _build_clients_tab(self) -> QWidget:
         return self._build_static_table_tab(
             "Clientes",
-            ["Nombre", "Domicilio fiscal", "Email", "Contacto"],
+            [
+                "Nombre",
+                "Domicilio fiscal",
+                "Email",
+                "Contacto",
+                "Es directo",
+                "Cliente directo",
+            ],
             self._cliente_rows(),
             create_callback=self._create_cliente,
             edit_callback=self._edit_cliente,
@@ -601,8 +624,14 @@ class MainWindow(QMainWindow):
         description.setObjectName("muted")
         description.setWordWrap(True)
 
-        controls = QHBoxLayout()
-        controls.setSpacing(12)
+        controls_layout = QVBoxLayout()
+        controls_layout.setSpacing(12)
+
+        top_controls = QHBoxLayout()
+        top_controls.setSpacing(12)
+
+        bottom_controls = QHBoxLayout()
+        bottom_controls.setSpacing(12)
 
         current_date = QDate.currentDate()
         mode_combo = self._build_combo(
@@ -617,7 +646,7 @@ class MainWindow(QMainWindow):
         self.print_mode_combo = mode_combo
         mode_card = self._build_billing_filter_card("Modo", mode_combo)
         self.print_mode_card = mode_card
-        controls.addWidget(mode_card)
+        top_controls.addWidget(mode_card)
 
         month_combo = self._build_combo(
             [
@@ -646,8 +675,8 @@ class MainWindow(QMainWindow):
         year_card = self._build_billing_filter_card("Año", year_combo)
         self.print_month_card = month_card
         self.print_year_card = year_card
-        controls.addWidget(month_card)
-        controls.addWidget(year_card)
+        top_controls.addWidget(month_card)
+        top_controls.addWidget(year_card)
 
         from_date = QDateEdit()
         from_date.setCalendarPopup(True)
@@ -657,28 +686,31 @@ class MainWindow(QMainWindow):
         self.print_from_date = from_date
         from_card = self._build_billing_filter_card("Desde", from_date)
         self.print_from_card = from_card
-        controls.addWidget(from_card)
+        top_controls.addWidget(from_card)
 
         to_date = QDateEdit()
         to_date.setCalendarPopup(True)
         to_date.setDisplayFormat("yyyy-MM-dd")
-        to_date.setDate(current_date)
+        to_date.setDate(
+            QDate(current_date.year(), current_date.month(), current_date.daysInMonth())
+        )
         to_date.dateChanged.connect(self._refresh_print_report)
         self.print_to_date = to_date
         to_card = self._build_billing_filter_card("Hasta", to_date)
         self.print_to_card = to_card
-        controls.addWidget(to_card)
+        top_controls.addWidget(to_card)
+        top_controls.addStretch()
 
         count_card = MetricCard("Viajes del periodo", "0")
         count_card.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.print_count_card = count_card
-        controls.addWidget(count_card)
+        bottom_controls.addWidget(count_card)
 
         total_card = MetricCard("Total del periodo", "$ 0")
         total_card.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.print_total_card = total_card
-        controls.addWidget(total_card)
-        controls.addStretch()
+        bottom_controls.addWidget(total_card)
+        bottom_controls.addStretch()
 
         export_excel_button = QPushButton("Exportar Excel")
         export_excel_button.setObjectName("primaryButton")
@@ -689,12 +721,14 @@ class MainWindow(QMainWindow):
         export_pdf_button.setCursor(Qt.CursorShape.PointingHandCursor)
         export_pdf_button.clicked.connect(self._export_print_pdf)
 
-        controls.addWidget(export_excel_button)
-        controls.addWidget(export_pdf_button)
+        bottom_controls.addWidget(export_excel_button)
+        bottom_controls.addWidget(export_pdf_button)
 
         layout.addWidget(title)
         layout.addWidget(description)
-        layout.addLayout(controls)
+        controls_layout.addLayout(top_controls)
+        controls_layout.addLayout(bottom_controls)
+        layout.addLayout(controls_layout)
         self._refresh_print_mode_ui()
         return panel
 
@@ -715,11 +749,12 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(header_title)
         header_layout.addStretch()
 
-        table = QTableWidget(0, 14)
+        table = QTableWidget(0, 15)
         table.setHorizontalHeaderLabels(
             [
                 "Fecha",
                 "Cliente",
+                "N° Carta de Porte",
                 "Carga",
                 "Lugar carga",
                 "Lugar descarga",
@@ -759,6 +794,7 @@ class MainWindow(QMainWindow):
                 show_actions=False,
             )
         )
+        layout.addWidget(self._build_company_settings_panel())
         layout.addWidget(self._build_updates_panel())
         layout.addWidget(self._build_database_tools_panel())
         layout.addStretch()
@@ -772,9 +808,57 @@ class MainWindow(QMainWindow):
     def _options_rows(self) -> list[tuple[int, list[str]]]:
         return [
             (1, ["Base de datos", str(self.database_path)]),
-            (2, ["Actualizaciones", "GitHub Releases"]),
-            (3, ["Modo", "Cliente sin servidor"]),
+            (2, ["Empresa", self.company_name]),
+            (3, ["Actualizaciones", "GitHub Releases"]),
+            (4, ["Modo", "Cliente sin servidor"]),
         ]
+
+    def _save_company_name(self) -> None:
+        if self.company_name_input is None:
+            return
+        company_name = normalize_company_name(self.company_name_input.text())
+        self.company_name = company_name
+        self.app_settings["company_name"] = company_name
+        save_app_settings(self.settings_path, self.app_settings)
+        self.company_name_input.setText(company_name)
+        self._refresh_object_table("Opciones")
+        QMessageBox.information(self, "Empresa", "Nombre de empresa guardado.")
+
+    def _build_company_settings_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("Empresa")
+        title.setObjectName("sectionTitle")
+        description = QLabel(
+            "Nombre usado para exportaciones, plantilla Ricco y nombre de archivo."
+        )
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+
+        company_name_input = QLineEdit()
+        company_name_input.setText(self.company_name)
+        company_name_input.setPlaceholderText("Nombre de la empresa")
+        self.company_name_input = company_name_input
+
+        save_button = QPushButton("Guardar nombre")
+        save_button.setObjectName("primaryButton")
+        save_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_button.clicked.connect(self._save_company_name)
+
+        controls.addWidget(company_name_input, stretch=1)
+        controls.addWidget(save_button)
+
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addLayout(controls)
+        return panel
 
     def _build_database_tools_panel(self) -> QWidget:
         panel = QFrame()
@@ -832,10 +916,12 @@ class MainWindow(QMainWindow):
             (
                 item.id,
                 [
-                    item.nombre,
+                    item.etiqueta,
                     item.domicilio_fiscal,
                     item.email,
                     item.numero_contacto,
+                    "Si" if item.es_cliente_directo else "No",
+                    item.cliente_padre_nombre,
                 ],
             )
             for item in self.cliente_repository.list_all()
@@ -966,7 +1052,6 @@ class MainWindow(QMainWindow):
 
         table = QTableWidget(len(rows), len(headers) + 1)
         table.setHorizontalHeaderLabels(["ID", *headers])
-        table.setColumnHidden(0, True)
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
@@ -1286,12 +1371,14 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self.table = QTableWidget(0, 21)
+        self.table = QTableWidget(0, 23)
         self.table.setHorizontalHeaderLabels(
             [
                 "ID",
                 "Fecha",
                 "Cliente",
+                "Es directo",
+                "N° Carta de Porte",
                 "Carga",
                 "Lugar carga",
                 "L.Descarga",
@@ -1312,8 +1399,7 @@ class MainWindow(QMainWindow):
                 "Estado",
             ]
         )
-        self.table.setColumnHidden(0, True)
-        self.table.setColumnHidden(20, True)
+        self.table.setColumnHidden(22, True)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
@@ -1349,6 +1435,8 @@ class MainWindow(QMainWindow):
             str(viaje.id),
             viaje.fecha,
             viaje.cliente,
+            "Si" if bool(viaje.cliente_es_directo) else "No",
+            viaje.carta_porte,
             viaje.carga,
             viaje.lugar_carga,
             viaje.lugar_descarga,
@@ -1466,6 +1554,8 @@ class MainWindow(QMainWindow):
                 domicilio_fiscal=str(values["domicilio_fiscal"]).strip(),
                 email=str(values["email"]).strip(),
                 numero_contacto=str(values["numero_contacto"]).strip(),
+                es_cliente_directo=bool(int(values["es_cliente_directo"])),
+                cliente_padre_id=self._optional_int_from_text(values["cliente_padre_id"]),
             )
             self._refresh_object_table("Clientes")
             self._refresh_viaje_form_options()
@@ -1487,6 +1577,8 @@ class MainWindow(QMainWindow):
                     "domicilio_fiscal": cliente.domicilio_fiscal,
                     "email": cliente.email,
                     "numero_contacto": cliente.numero_contacto,
+                    "es_cliente_directo": 1 if cliente.es_cliente_directo else 0,
+                    "cliente_padre_id": cliente.cliente_padre_id or "",
                 }
             ),
         )
@@ -1500,6 +1592,8 @@ class MainWindow(QMainWindow):
                 domicilio_fiscal=str(values["domicilio_fiscal"]).strip(),
                 email=str(values["email"]).strip(),
                 numero_contacto=str(values["numero_contacto"]).strip(),
+                es_cliente_directo=bool(int(values["es_cliente_directo"])),
+                cliente_padre_id=self._optional_int_from_text(values["cliente_padre_id"]),
             )
             self._refresh_object_table("Clientes")
             self._refresh_table()
@@ -1832,6 +1926,7 @@ class MainWindow(QMainWindow):
             self.viaje_repository.update_basic(
                 viaje_id,
                 fecha=str(values["fecha"]),
+                carta_porte=str(values["carta_porte"]).strip(),
                 observaciones=str(values["observaciones"]).strip(),
                 tarifa=float(values["tarifa"]),
                 fecha_descarga_tarifa=str(values["fecha_descarga_tarifa"]),
@@ -1939,6 +2034,19 @@ class MainWindow(QMainWindow):
                 "key": "numero_contacto",
                 "label": "Numero contacto",
                 "value": values.get("numero_contacto", ""),
+                "required": False,
+            },
+            {
+                "key": "es_cliente_directo",
+                "label": "Es cliente directo",
+                "type": "combo",
+                "value": values.get("es_cliente_directo", 1),
+                "options": [("Si", 1), ("No", 0)],
+            },
+            {
+                "key": "cliente_padre_id",
+                "label": "ID cliente directo/logistica",
+                "value": values.get("cliente_padre_id", ""),
                 "required": False,
             },
         ]
@@ -2063,58 +2171,64 @@ class MainWindow(QMainWindow):
         return [
             {"key": "fecha", "label": "Fecha", "type": "date", "value": self._cell(row, 1)},
             {
+                "key": "carta_porte",
+                "label": "N° Carta de Porte",
+                "value": self._cell(row, 4),
+                "required": False,
+            },
+            {
                 "key": "observaciones",
                 "label": "Observaciones",
                 "type": "multiline",
-                "value": self._cell(row, 6),
+                "value": self._cell(row, 8),
                 "required": False,
             },
             {
                 "key": "tarifa",
                 "label": "Tarifa",
                 "type": "money",
-                "value": self._money_from_display(self._cell(row, 11)),
+                "value": self._money_from_display(self._cell(row, 13)),
             },
             {
                 "key": "fecha_descarga_tarifa",
                 "label": "F.Desc tarifa",
                 "type": "date",
-                "value": self._cell(row, 12),
+                "value": self._cell(row, 14),
                 "required": False,
             },
             {
                 "key": "demora",
                 "label": "Demora",
                 "type": "money",
-                "value": self._money_from_display(self._cell(row, 13)),
+                "value": self._money_from_display(self._cell(row, 15)),
             },
             {
                 "key": "fecha_descarga_demora",
                 "label": "F.Desc demora",
                 "type": "date",
-                "value": self._cell(row, 14),
+                "value": self._cell(row, 16),
                 "required": False,
             },
             {
                 "key": "vacio",
                 "label": "Vacio",
                 "type": "money",
-                "value": self._money_from_display(self._cell(row, 15)),
+                "value": self._money_from_display(self._cell(row, 17)),
             },
             {
                 "key": "fecha_descarga_vacio",
                 "label": "F.Desc vacio",
                 "type": "date",
-                "value": self._cell(row, 16),
+                "value": self._cell(row, 18),
                 "required": False,
             },
             {
                 "key": "gas_oil_lts",
                 "label": "Gas oil (lts)",
                 "type": "decimal",
-                "value": self._decimal_from_display(self._cell(row, 17)),
+                "value": self._decimal_from_display(self._cell(row, 19)),
             },
-            {"key": "estado", "label": "Estado", "value": self._cell(row, 20)},
+            {"key": "estado", "label": "Estado", "value": self._cell(row, 22)},
         ]
 
     def _find_by_id(self, items: list[object], item_id: int) -> object | None:
@@ -2136,6 +2250,12 @@ class MainWindow(QMainWindow):
     def _decimal_from_display(self, value: str) -> float:
         clean = value.replace(".", "").replace(",", ".").strip()
         return float(clean or 0)
+
+    def _optional_int_from_text(self, value: object) -> int | None:
+        text = str(value).strip()
+        if not text:
+            return None
+        return int(text)
 
     def _save_viaje(self) -> None:
         try:
@@ -2188,6 +2308,7 @@ class MainWindow(QMainWindow):
         return ViajeCreate(
             fecha=fecha,
             cliente_id=cliente_id,
+            carta_porte=self._line_value("carta_porte"),
             carga_id=carga_id,
             lugar_carga_id=lugar_carga_id,
             lugar_descarga_id=lugar_descarga_id,
@@ -2215,6 +2336,10 @@ class MainWindow(QMainWindow):
         observaciones = self.form_widgets["observaciones"]
         if isinstance(observaciones, QTextEdit):
             observaciones.clear()
+
+        carta_porte = self.form_widgets["carta_porte"]
+        if isinstance(carta_porte, QLineEdit):
+            carta_porte.clear()
 
         for widget in self.form_widgets.values():
             if isinstance(widget, QComboBox):
@@ -2377,22 +2502,55 @@ class MainWindow(QMainWindow):
             )
             return
 
-        default_name = f"{self._selected_print_file_stem()}.xlsx"
+        mode = self._selected_print_mode()
+        template_path = None
+        if mode == "ricco":
+            template_path = find_ricco_template_path()
+            if template_path is None:
+                selected_template, _ = QFileDialog.getOpenFileName(
+                    self,
+                    "Seleccionar plantilla RICCO",
+                    str(Path.home()),
+                    "Archivos Excel (*.xlsx)",
+                )
+                if not selected_template:
+                    return
+                template_path = Path(selected_template)
+            default_name = build_ricco_export_filename(
+                self.print_from_date.date().toString("yyyy-MM-dd"),
+                self.print_to_date.date().toString("yyyy-MM-dd"),
+                self.company_name,
+            )
+            default_dir = template_path.parent
+        else:
+            default_name = f"{self._selected_print_file_stem()}.xlsx"
+            default_dir = self.database_path.parent
+
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Guardar reporte Excel",
-            str(self.database_path.parent / default_name),
+            str(default_dir / default_name),
             "Archivos Excel (*.xlsx)",
         )
         if not file_path:
             return
 
-        export_monthly_report_excel(
-            Path(file_path),
-            self._selected_print_period_label(),
-            self.print_rows,
-            report_title=self._selected_print_title(),
-        )
+        if mode == "ricco" and template_path is not None:
+            export_ricco_report_excel(
+                template_path,
+                Path(file_path),
+                self.print_from_date.date().toString("yyyy-MM-dd"),
+                self.print_to_date.date().toString("yyyy-MM-dd"),
+                self.print_rows,
+                company_name=self.company_name,
+            )
+        else:
+            export_monthly_report_excel(
+                Path(file_path),
+                self._selected_print_period_label(),
+                self.print_rows,
+                report_title=self._selected_print_title(),
+            )
         QMessageBox.information(
             self,
             "Imprimir",
@@ -2481,6 +2639,7 @@ class MainWindow(QMainWindow):
         return [
             viaje.fecha,
             viaje.cliente,
+            viaje.carta_porte,
             viaje.carga,
             viaje.lugar_carga,
             viaje.lugar_descarga,
@@ -2553,7 +2712,9 @@ class MainWindow(QMainWindow):
 
     def _refresh_viaje_form_options(self) -> None:
         combo_sources = {
-            "cliente": [(item.nombre, item.id) for item in self.cliente_repository.list_all()],
+            "cliente": [
+                (item.etiqueta, item.id) for item in self.cliente_repository.list_all()
+            ],
             "carga": [
                 (item.codigo_contenedor, item.id)
                 for item in self.carga_repository.list_all()
@@ -2674,6 +2835,12 @@ class MainWindow(QMainWindow):
         if not isinstance(widget, QTextEdit):
             raise ValueError("Campo de texto invalido.")
         return widget.toPlainText().strip()
+
+    def _line_value(self, key: str) -> str:
+        widget = self.form_widgets[key]
+        if not isinstance(widget, QLineEdit):
+            raise ValueError("Campo de linea invalido.")
+        return widget.text().strip()
 
     def _money_value(self, key: str) -> float:
         widget = self.form_widgets[key]

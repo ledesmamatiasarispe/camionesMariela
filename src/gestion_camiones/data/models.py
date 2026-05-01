@@ -10,7 +10,16 @@ class Cliente:
     domicilio_fiscal: str
     email: str
     numero_contacto: str
+    es_cliente_directo: bool
+    cliente_padre_id: int | None
+    cliente_padre_nombre: str
     activo: bool
+
+    @property
+    def etiqueta(self) -> str:
+        if self.es_cliente_directo or not self.cliente_padre_nombre:
+            return self.nombre
+        return f"{self.nombre} ({self.cliente_padre_nombre})"
 
 
 @dataclass(frozen=True)
@@ -92,6 +101,7 @@ class ViajeResumen:
     id: int
     fecha: str
     cliente: str
+    carta_porte: str
     carga: str
     lugar_carga: str
     lugar_descarga: str
@@ -109,6 +119,7 @@ class ViajeResumen:
     gas_oil_lts: float
     peajes: float
     estado: str
+    cliente_es_directo: bool = True
 
     @property
     def costo_total(self) -> float:
@@ -119,6 +130,7 @@ class ViajeResumen:
 class ViajeCreate:
     fecha: str
     cliente_id: int
+    carta_porte: str
     carga_id: int
     lugar_carga_id: int
     lugar_descarga_id: int

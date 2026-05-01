@@ -13,8 +13,11 @@ CREATE TABLE IF NOT EXISTS clientes (
     domicilio_fiscal TEXT NOT NULL DEFAULT '',
     email TEXT NOT NULL DEFAULT '',
     numero_contacto TEXT NOT NULL DEFAULT '',
+    es_cliente_directo INTEGER NOT NULL DEFAULT 1,
+    cliente_padre_id INTEGER,
     activo INTEGER NOT NULL DEFAULT 1,
-    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (cliente_padre_id) REFERENCES clientes(id)
 );
 
 CREATE TABLE IF NOT EXISTS cargas (
@@ -88,6 +91,7 @@ CREATE TABLE IF NOT EXISTS viajes (
     id INTEGER PRIMARY KEY,
     fecha TEXT NOT NULL DEFAULT '',
     cliente_id INTEGER NOT NULL,
+    carta_porte TEXT NOT NULL DEFAULT '',
     carga_id INTEGER NOT NULL,
     lugar_carga_id INTEGER NOT NULL,
     lugar_descarga_id INTEGER NOT NULL,
@@ -138,6 +142,7 @@ CREATE INDEX IF NOT EXISTS idx_viajes_estado ON viajes(estado);
 POST_MIGRATION_SQL = """
 CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
 CREATE INDEX IF NOT EXISTS idx_clientes_email ON clientes(email);
+CREATE INDEX IF NOT EXISTS idx_clientes_cliente_padre_id ON clientes(cliente_padre_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cargas_codigo_contenedor
     ON cargas(codigo_contenedor);
 CREATE INDEX IF NOT EXISTS idx_lugares_nombre ON lugares(nombre);
@@ -319,6 +324,7 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
         _migrate_vehiculos(connection)
         _migrate_viajes_to_vehiculos(connection)
         _migrate_viaje_fecha(connection)
+        _migrate_viaje_carta_porte(connection)
         _migrate_viaje_fechas_descarga(connection)
         _migrate_viaje_gas_oil_lts(connection)
         _migrate_tipo_carga(connection)
@@ -366,6 +372,12 @@ def _migrate_clientes(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE clientes ADD COLUMN numero_contacto TEXT NOT NULL DEFAULT ''"
         )
+    if "es_cliente_directo" not in columns:
+        connection.execute(
+            "ALTER TABLE clientes ADD COLUMN es_cliente_directo INTEGER NOT NULL DEFAULT 1"
+        )
+    if "cliente_padre_id" not in columns:
+        connection.execute("ALTER TABLE clientes ADD COLUMN cliente_padre_id INTEGER")
 
 
 def _migrate_cargas(connection: sqlite3.Connection) -> None:
@@ -636,6 +648,15 @@ def _migrate_viaje_fecha(connection: sqlite3.Connection) -> None:
 
     if "fecha" not in columns:
         connection.execute("ALTER TABLE viajes ADD COLUMN fecha TEXT NOT NULL DEFAULT ''")
+
+
+def _migrate_viaje_carta_porte(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "viajes")
+
+    if "carta_porte" not in columns:
+        connection.execute(
+            "ALTER TABLE viajes ADD COLUMN carta_porte TEXT NOT NULL DEFAULT ''"
+        )
 
 
 def _create_viaje_peajes_table(connection: sqlite3.Connection) -> None:
