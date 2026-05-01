@@ -70,13 +70,28 @@ CREATE TABLE IF NOT EXISTS vehiculos (
     creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS empresas_peaje (
+    id INTEGER PRIMARY KEY,
+    nombre TEXT NOT NULL UNIQUE,
+    activo INTEGER NOT NULL DEFAULT 1,
+    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS peajes (
     id INTEGER PRIMARY KEY,
+    empresa_id INTEGER NOT NULL DEFAULT 1,
     nombre TEXT NOT NULL UNIQUE,
     direccion TEXT NOT NULL DEFAULT '',
     costo NUMERIC NOT NULL DEFAULT 0,
     activo INTEGER NOT NULL DEFAULT 1,
-    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (empresa_id) REFERENCES empresas_peaje(id)
+);
+
+CREATE TABLE IF NOT EXISTS alertas_app (
+    clave TEXT PRIMARY KEY,
+    avisar_nuevamente_desde TEXT NOT NULL DEFAULT '',
+    actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS tipos_carga (
@@ -136,6 +151,8 @@ CREATE INDEX IF NOT EXISTS idx_viajes_fecha ON viajes(fecha);
 CREATE INDEX IF NOT EXISTS idx_viajes_chofer_id ON viajes(chofer_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_camion_id ON viajes(camion_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_estado ON viajes(estado);
+CREATE INDEX IF NOT EXISTS idx_alertas_app_avisar_nuevamente_desde
+    ON alertas_app(avisar_nuevamente_desde);
 """
 
 
@@ -154,7 +171,9 @@ CREATE INDEX IF NOT EXISTS idx_choferes_apellido_nombre ON choferes(apellido, no
 CREATE INDEX IF NOT EXISTS idx_vehiculos_tipo ON vehiculos(tipo);
 CREATE INDEX IF NOT EXISTS idx_vehiculos_nombre_identificatorio
     ON vehiculos(nombre_identificatorio);
+CREATE INDEX IF NOT EXISTS idx_empresas_peaje_nombre ON empresas_peaje(nombre);
 CREATE INDEX IF NOT EXISTS idx_peajes_nombre ON peajes(nombre);
+CREATE INDEX IF NOT EXISTS idx_peajes_empresa_id ON peajes(empresa_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tipos_carga_codigo ON tipos_carga(codigo);
 CREATE INDEX IF NOT EXISTS idx_viaje_peajes_viaje_id ON viaje_peajes(viaje_id);
 CREATE INDEX IF NOT EXISTS idx_viaje_peajes_peaje_id ON viaje_peajes(peaje_id);
@@ -163,6 +182,8 @@ CREATE INDEX IF NOT EXISTS idx_viajes_fecha ON viajes(fecha);
 CREATE INDEX IF NOT EXISTS idx_viajes_chofer_id ON viajes(chofer_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_camion_id ON viajes(camion_id);
 CREATE INDEX IF NOT EXISTS idx_viajes_estado ON viajes(estado);
+CREATE INDEX IF NOT EXISTS idx_alertas_app_avisar_nuevamente_desde
+    ON alertas_app(avisar_nuevamente_desde);
 CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_tarifa
     ON viajes(fecha_descarga_tarifa);
 CREATE INDEX IF NOT EXISTS idx_viajes_fecha_descarga_demora
@@ -253,10 +274,13 @@ INSERT OR IGNORE INTO vehiculos (
     (1002, 'SEMI', 'Semi playo', 'AC222DD', ''),
     (1003, 'SEMI', 'Semi cerealero', 'AF333GG', '');
 
-INSERT OR IGNORE INTO peajes (id, nombre, direccion, costo) VALUES
-    (1, 'Peaje Autopista Norte', 'Direccion pendiente', 15000),
-    (2, 'Peaje Ruta Sur', 'Direccion pendiente', 22000),
-    (3, 'Peaje Acceso Puerto', 'Direccion pendiente', 9000);
+INSERT OR IGNORE INTO empresas_peaje (id, nombre) VALUES
+    (1, 'Sin empresa');
+
+INSERT OR IGNORE INTO peajes (id, empresa_id, nombre, direccion, costo) VALUES
+    (1, 1, 'Peaje Autopista Norte', 'Direccion pendiente', 15000),
+    (2, 1, 'Peaje Ruta Sur', 'Direccion pendiente', 22000),
+    (3, 1, 'Peaje Acceso Puerto', 'Direccion pendiente', 9000);
 
 INSERT OR IGNORE INTO tipos_carga (id, codigo, nombre) VALUES
     (1, 'GENERAL', 'General'),
@@ -330,10 +354,12 @@ def initialize_database(database_path: Path, *, seed: bool = True) -> None:
         _migrate_viaje_gas_oil_lts(connection)
         _migrate_tipo_carga(connection)
         _migrate_tipos_carga(connection)
+        _migrate_empresas_peaje(connection)
         _migrate_viajes_tipo_carga_dynamic(connection)
         _migrate_viaje_peajes_snapshot(connection)
         _migrate_peajes_from_viajes(connection)
         _migrate_lugar_roles_from_viajes(connection)
+        _migrate_alertas_app(connection)
         connection.executescript(POST_MIGRATION_SQL)
         if seed:
             connection.executescript(SEED_SQL)
@@ -354,6 +380,8 @@ def clear_database(database_path: Path) -> None:
             "choferes",
             "vehiculos",
             "peajes",
+            "empresas_peaje",
+            "alertas_app",
             "tipos_carga",
         ):
             connection.execute(f"DELETE FROM {table_name}")
@@ -377,6 +405,48 @@ def _migrate_clientes(connection: sqlite3.Connection) -> None:
         )
     if "cliente_padre_id" not in columns:
         connection.execute("ALTER TABLE clientes ADD COLUMN cliente_padre_id INTEGER")
+
+
+def _migrate_alertas_app(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS alertas_app (
+            clave TEXT PRIMARY KEY,
+            avisar_nuevamente_desde TEXT NOT NULL DEFAULT '',
+            actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+
+def _migrate_empresas_peaje(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS empresas_peaje (
+            id INTEGER PRIMARY KEY,
+            nombre TEXT NOT NULL UNIQUE,
+            activo INTEGER NOT NULL DEFAULT 1,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO empresas_peaje (id, nombre) VALUES (1, 'Sin empresa')"
+    )
+
+    columns = _table_columns(connection, "peajes")
+    if "empresa_id" not in columns:
+        connection.execute(
+            "ALTER TABLE peajes ADD COLUMN empresa_id INTEGER NOT NULL DEFAULT 1"
+        )
+    connection.execute(
+        """
+        UPDATE peajes
+        SET empresa_id = 1
+        WHERE empresa_id IS NULL
+           OR empresa_id NOT IN (SELECT id FROM empresas_peaje)
+        """
+    )
 
 
 def _migrate_cargas(connection: sqlite3.Connection) -> None:

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
+from datetime import date, timedelta
 from pathlib import Path
 
 from gestion_camiones.data.models import (
+    AppAlert,
     Carga,
     Chofer,
     Cliente,
+    EmpresaPeaje,
     Lugar,
     LugarRol,
     Peaje,
@@ -981,6 +984,22 @@ class ChoferRepository:
             )
             connection.commit()
 
+    def update_fecha_vencimiento_registro(
+        self,
+        chofer_id: int,
+        fecha_vencimiento_registro: str,
+    ) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                UPDATE choferes
+                SET fecha_vencimiento_registro = ?
+                WHERE id = ?
+                """,
+                (fecha_vencimiento_registro, chofer_id),
+            )
+            connection.commit()
+
     def delete(self, chofer_id: int) -> None:
         with closing(self._connect()) as connection:
             connection.execute(
@@ -988,6 +1007,104 @@ class ChoferRepository:
                 (chofer_id,),
             )
             connection.commit()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+
+class AlertRepository:
+    DRIVER_LICENSE_SOURCE = "chofer_registro"
+
+    def __init__(self, database_path: Path) -> None:
+        self.database_path = database_path
+
+    def list_startup_alerts(self, today: date | None = None) -> list[AppAlert]:
+        current_date = today or date.today()
+        threshold_date = current_date + timedelta(days=60)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    choferes.id,
+                    choferes.nombre,
+                    choferes.apellido,
+                    choferes.fecha_vencimiento_registro,
+                    alertas_app.avisar_nuevamente_desde
+                FROM choferes
+                LEFT JOIN alertas_app
+                    ON alertas_app.clave =
+                        'chofer_registro:' || choferes.id || ':' ||
+                        choferes.fecha_vencimiento_registro
+                WHERE choferes.activo = 1
+                  AND COALESCE(choferes.fecha_vencimiento_registro, '') != ''
+                  AND choferes.fecha_vencimiento_registro <= ?
+                  AND (
+                      alertas_app.avisar_nuevamente_desde IS NULL
+                      OR alertas_app.avisar_nuevamente_desde = ''
+                      OR alertas_app.avisar_nuevamente_desde <= ?
+                  )
+                ORDER BY choferes.fecha_vencimiento_registro, choferes.apellido, choferes.nombre
+                """,
+                (threshold_date.isoformat(), current_date.isoformat()),
+            ).fetchall()
+
+        alerts: list[AppAlert] = []
+        for row in rows:
+            due_date = str(row["fecha_vencimiento_registro"])
+            try:
+                due = date.fromisoformat(due_date)
+            except ValueError:
+                continue
+            full_name = f"{row['nombre']} {row['apellido']}".strip()
+            if due < current_date:
+                timing = f"vencio el {due_date}"
+            else:
+                days_left = (due - current_date).days
+                timing = f"vence el {due_date} ({days_left} dias)"
+            alerts.append(
+                AppAlert(
+                    key=self.driver_license_alert_key(int(row["id"]), due_date),
+                    source=self.DRIVER_LICENSE_SOURCE,
+                    title="Registro de chofer por vencer",
+                    message=(
+                        f"El registro de {full_name} {timing}.\n\n"
+                        "Acepta para volver a recordar en una semana, o valida "
+                        "cargando la nueva fecha de vencimiento."
+                    ),
+                    entity_id=int(row["id"]),
+                    due_date=due_date,
+                )
+            )
+        return alerts
+
+    def accept_alert(self, alert_key: str, today: date | None = None) -> None:
+        remind_from = (today or date.today()) + timedelta(days=7)
+        with closing(self._connect()) as connection:
+            connection.execute(
+                """
+                INSERT INTO alertas_app (
+                    clave,
+                    avisar_nuevamente_desde,
+                    actualizado_en
+                ) VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(clave) DO UPDATE SET
+                    avisar_nuevamente_desde = excluded.avisar_nuevamente_desde,
+                    actualizado_en = CURRENT_TIMESTAMP
+                """,
+                (alert_key, remind_from.isoformat()),
+            )
+            connection.commit()
+
+    def clear_alert(self, alert_key: str) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute("DELETE FROM alertas_app WHERE clave = ?", (alert_key,))
+            connection.commit()
+
+    def driver_license_alert_key(self, chofer_id: int, due_date: str) -> str:
+        return f"{self.DRIVER_LICENSE_SOURCE}:{chofer_id}:{due_date}"
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
@@ -1118,15 +1235,13 @@ class PeajeRepository:
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
 
-    def list_all(self, include_inactive: bool = False) -> list[Peaje]:
+    def list_empresas(self, include_inactive: bool = False) -> list[EmpresaPeaje]:
         query = """
             SELECT
                 id,
                 nombre,
-                direccion,
-                costo,
                 activo
-            FROM peajes
+            FROM empresas_peaje
         """
         params: tuple[int, ...] = ()
 
@@ -1134,14 +1249,94 @@ class PeajeRepository:
             query += " WHERE activo = ?"
             params = (1,)
 
-        query += " ORDER BY nombre"
+        query += " ORDER BY nombre COLLATE NOCASE"
 
         with closing(self._connect()) as connection:
             rows = connection.execute(query, params).fetchall()
 
         return [
+            EmpresaPeaje(
+                id=row["id"],
+                nombre=row["nombre"],
+                activo=bool(row["activo"]),
+            )
+            for row in rows
+        ]
+
+    def create_empresa(self, *, nombre: str) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO empresas_peaje (nombre)
+                VALUES (?)
+                """,
+                (nombre,),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def update_empresa(self, empresa_id: int, *, nombre: str) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE empresas_peaje SET nombre = ? WHERE id = ?",
+                (nombre, empresa_id),
+            )
+            connection.commit()
+
+    def delete_empresa(self, empresa_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE empresas_peaje SET activo = 0 WHERE id = ?",
+                (empresa_id,),
+            )
+            connection.execute(
+                "UPDATE peajes SET activo = 0 WHERE empresa_id = ?",
+                (empresa_id,),
+            )
+            connection.commit()
+
+    def list_all(
+        self,
+        include_inactive: bool = False,
+        empresa_id: int | None = None,
+    ) -> list[Peaje]:
+        query = """
+            SELECT
+                peajes.id,
+                peajes.empresa_id,
+                COALESCE(empresas_peaje.nombre, '') AS empresa_nombre,
+                peajes.nombre,
+                peajes.direccion,
+                peajes.costo,
+                peajes.activo
+            FROM peajes
+            LEFT JOIN empresas_peaje ON empresas_peaje.id = peajes.empresa_id
+        """
+        clauses = []
+        params: list[int] = []
+
+        if not include_inactive:
+            clauses.append("peajes.activo = ?")
+            params.append(1)
+            clauses.append("COALESCE(empresas_peaje.activo, 1) = ?")
+            params.append(1)
+        if empresa_id is not None:
+            clauses.append("peajes.empresa_id = ?")
+            params.append(empresa_id)
+
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+
+        query += " ORDER BY empresas_peaje.nombre COLLATE NOCASE, peajes.nombre COLLATE NOCASE"
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, tuple(params)).fetchall()
+
+        return [
             Peaje(
                 id=row["id"],
+                empresa_id=row["empresa_id"],
+                empresa_nombre=row["empresa_nombre"],
                 nombre=row["nombre"],
                 direccion=row["direccion"],
                 costo=row["costo"],
@@ -1150,14 +1345,21 @@ class PeajeRepository:
             for row in rows
         ]
 
-    def create(self, *, nombre: str, direccion: str, costo: float) -> int:
+    def create(
+        self,
+        *,
+        empresa_id: int,
+        nombre: str,
+        direccion: str,
+        costo: float,
+    ) -> int:
         with closing(self._connect()) as connection:
             cursor = connection.execute(
                 """
-                INSERT INTO peajes (nombre, direccion, costo)
-                VALUES (?, ?, ?)
+                INSERT INTO peajes (empresa_id, nombre, direccion, costo)
+                VALUES (?, ?, ?, ?)
                 """,
-                (nombre, direccion, costo),
+                (empresa_id, nombre, direccion, costo),
             )
             connection.commit()
             return int(cursor.lastrowid)
@@ -1166,6 +1368,7 @@ class PeajeRepository:
         self,
         peaje_id: int,
         *,
+        empresa_id: int,
         nombre: str,
         direccion: str,
         costo: float,
@@ -1174,10 +1377,26 @@ class PeajeRepository:
             connection.execute(
                 """
                 UPDATE peajes
-                SET nombre = ?, direccion = ?, costo = ?
+                SET empresa_id = ?, nombre = ?, direccion = ?, costo = ?
                 WHERE id = ?
                 """,
-                (nombre, direccion, costo, peaje_id),
+                (empresa_id, nombre, direccion, costo, peaje_id),
+            )
+            connection.commit()
+
+    def update_cost_many(self, peaje_ids: tuple[int, ...], *, costo: float) -> None:
+        if not peaje_ids:
+            return
+
+        placeholders = ", ".join("?" for _ in peaje_ids)
+        with closing(self._connect()) as connection:
+            connection.execute(
+                f"""
+                UPDATE peajes
+                SET costo = ?
+                WHERE id IN ({placeholders})
+                """,
+                (costo, *peaje_ids),
             )
             connection.commit()
 

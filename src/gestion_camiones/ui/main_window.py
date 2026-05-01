@@ -41,9 +41,10 @@ from PySide6.QtWidgets import (
 
 from gestion_camiones import __version__
 from gestion_camiones.config import GITHUB_OWNER, GITHUB_REPO
-from gestion_camiones.data.models import ViajeCreate, ViajeResumen
+from gestion_camiones.data.models import AppAlert, ViajeCreate, ViajeResumen
 from gestion_camiones.data.paths import get_app_data_dir, get_settings_path
 from gestion_camiones.data.repositories import (
+    AlertRepository,
     CargaRepository,
     ChoferRepository,
     ClienteRepository,
@@ -178,6 +179,7 @@ VIAJE_FORM_FIELDS = (
     ("vacio", "Vacio"),
     ("fecha_descarga_vacio", "F.Desc vacio"),
     ("gas_oil_lts", "Gas oil (lts)"),
+    ("peaje_empresa", "Empresa peajes"),
     ("peajes", "Peajes"),
 )
 VIAJE_FORM_LABELS = dict(VIAJE_FORM_FIELDS)
@@ -212,6 +214,7 @@ class MainWindow(QMainWindow):
         self.update_download_in_progress = False
         self.update_progress_dialog: QProgressDialog | None = None
         self.cliente_repository = ClienteRepository(database_path)
+        self.alert_repository = AlertRepository(database_path)
         self.carga_repository = CargaRepository(database_path)
         self.lugar_repository = LugarRepository(database_path)
         self.chofer_repository = ChoferRepository(database_path)
@@ -222,6 +225,10 @@ class MainWindow(QMainWindow):
         self.search_input: QLineEdit | None = None
         self.table: QTableWidget | None = None
         self.object_tables: dict[str, QTableWidget] = {}
+        self.peajes_detail_panel: QFrame | None = None
+        self.peajes_detail_title: QLabel | None = None
+        self.peajes_detail_table: QTableWidget | None = None
+        self.selected_peaje_empresa_id: int | None = None
         self.tabs: QTabWidget | None = None
         self.nav_buttons: dict[str, QPushButton] = {}
         self.page_title_label: QLabel | None = None
@@ -260,7 +267,7 @@ class MainWindow(QMainWindow):
         self._build_menu()
         self.setCentralWidget(self._build_shell())
         self.setStyleSheet(APP_STYLES)
-        QTimer.singleShot(900, self._check_updates_on_startup)
+        QTimer.singleShot(450, self._show_startup_alerts)
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("Archivo")
@@ -277,6 +284,85 @@ class MainWindow(QMainWindow):
                 )
             )
             view_menu.addAction(action)
+
+    def _show_startup_alerts(self) -> None:
+        alerts = self.alert_repository.list_startup_alerts()
+        if not alerts:
+            QTimer.singleShot(350, self._check_updates_on_startup)
+            return
+
+        dialog = StartupAlertsDialog(
+            self,
+            alerts,
+            accept_callback=self._accept_startup_alert,
+            validate_callback=self._validate_startup_alert,
+        )
+        dialog.exec()
+        QTimer.singleShot(350, self._check_updates_on_startup)
+
+    def _accept_startup_alert(self, alert: AppAlert) -> bool:
+        self.alert_repository.accept_alert(alert.key)
+        return True
+
+    def _validate_startup_alert(self, alert: AppAlert) -> bool:
+        if alert.source == AlertRepository.DRIVER_LICENSE_SOURCE:
+            new_date = self._ask_driver_license_due_date(alert)
+            if new_date is None:
+                return False
+            self.chofer_repository.update_fecha_vencimiento_registro(
+                alert.entity_id,
+                new_date,
+            )
+            self.alert_repository.clear_alert(alert.key)
+            self._refresh_object_table("Chofer")
+            return True
+        QMessageBox.warning(
+            self,
+            "Alerta",
+            "Esta alerta no tiene una validacion automatica disponible.",
+        )
+        return False
+
+    def _ask_driver_license_due_date(self, alert: AppAlert) -> str | None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Validar registro")
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(12)
+
+        title = QLabel("Nueva fecha de vencimiento")
+        title.setObjectName("sectionTitle")
+        description = QLabel(alert.message)
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+
+        date_input = QDateEdit()
+        date_input.setCalendarPopup(True)
+        date_input.setDisplayFormat("yyyy-MM-dd")
+        current_due_date = QDate.fromString(alert.due_date, "yyyy-MM-dd")
+        if current_due_date.isValid():
+            default_date = current_due_date.addYears(1)
+        else:
+            default_date = QDate.currentDate()
+        date_input.setDate(default_date)
+
+        form = QFormLayout()
+        form.addRow("Vencimiento", date_input)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return date_input.date().toString("yyyy-MM-dd")
 
     def _build_shell(self) -> QWidget:
         shell = QWidget()
@@ -492,18 +578,11 @@ class MainWindow(QMainWindow):
 
         gas_oil_lts = self._decimal_input()
 
+        peaje_empresa = self._build_peaje_empresa_combo()
+        peaje_empresa.currentIndexChanged.connect(self._refresh_peaje_checklist)
+
         peajes = QListWidget()
         peajes.setFixedHeight(92)
-        for item in self.peaje_repository.list_all():
-            peaje_item = QListWidgetItem(
-                f"{item.nombre} - {_format_money(item.costo)}"
-            )
-            peaje_item.setFlags(
-                peaje_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-            )
-            peaje_item.setCheckState(Qt.CheckState.Unchecked)
-            peaje_item.setData(Qt.ItemDataRole.UserRole, item.id)
-            peajes.addItem(peaje_item)
 
         self.form_widgets = {
             "fecha": fecha,
@@ -524,6 +603,7 @@ class MainWindow(QMainWindow):
             "vacio": vacio,
             "fecha_descarga_vacio": fecha_descarga_vacio,
             "gas_oil_lts": gas_oil_lts,
+            "peaje_empresa": peaje_empresa,
             "peajes": peajes,
         }
 
@@ -546,6 +626,7 @@ class MainWindow(QMainWindow):
         self._add_viaje_form_row(right_form, "vacio", vacio)
         self._add_viaje_form_row(right_form, "fecha_descarga_vacio", fecha_descarga_vacio)
         self._add_viaje_form_row(right_form, "gas_oil_lts", gas_oil_lts)
+        self._add_viaje_form_row(right_form, "peaje_empresa", peaje_empresa)
         self._add_viaje_form_row(right_form, "peajes", peajes)
 
         form_grid.addLayout(left_form, 0, 0)
@@ -558,6 +639,7 @@ class MainWindow(QMainWindow):
         scroll.setWidget(panel)
 
         layout.addWidget(scroll, stretch=1)
+        self._refresh_peaje_checklist()
         self._apply_viaje_field_visibility()
         return tab
 
@@ -643,14 +725,82 @@ class MainWindow(QMainWindow):
         )
 
     def _build_peajes_tab(self) -> QWidget:
-        return self._build_static_table_tab(
+        tab = QWidget()
+        layout = QHBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        empresas_panel = self._build_readonly_table_panel(
             "Peajes",
-            ["Nombre", "Direccion", "Costo"],
+            ["Empresa"],
             self._peaje_rows(),
-            create_callback=self._create_peaje,
-            edit_callback=self._edit_peaje,
-            delete_callback=self._delete_peaje,
+            create_callback=self._create_peaje_empresa,
+            edit_callback=self._edit_peaje_empresa,
+            delete_callback=self._delete_peaje_empresa,
+            extra_actions=[("Ver peajes", self._show_selected_empresa_peajes)],
+            create_label="Añadir",
+            edit_label="Editar",
+            delete_label="Eliminar",
+            action_order=("create", "delete", "edit", "extra"),
         )
+        empresas_table = self.object_tables.get("Peajes")
+        if empresas_table is not None:
+            empresas_table.itemDoubleClicked.connect(
+                lambda _item: self._show_selected_empresa_peajes()
+            )
+
+        layout.addWidget(empresas_panel, stretch=3)
+        layout.addWidget(self._build_peajes_detail_panel(), stretch=2)
+        return tab
+
+    def _build_peajes_detail_panel(self) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        panel.setVisible(False)
+        panel.setMinimumWidth(380)
+        self.peajes_detail_panel = panel
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("panelHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(16, 0, 16, 0)
+        title = QLabel("Peajes")
+        title.setObjectName("sectionTitle")
+        self.peajes_detail_title = title
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+
+        for label, callback in (
+            ("Cerrar lista", self._close_empresa_peajes),
+            ("Editar peaje", self._edit_peaje),
+            ("Eliminar peaje", self._delete_peaje),
+            ("Actualizar varios peajes", self._bulk_update_peajes),
+            ("Crear nuevo peaje", self._create_peaje),
+        ):
+            button = QPushButton(label)
+            if label == "Eliminar peaje":
+                button.setObjectName("dangerButton")
+            elif label == "Crear nuevo peaje":
+                button.setObjectName("primaryButton")
+            button.clicked.connect(callback)
+            header_layout.addWidget(button)
+
+        table = QTableWidget(0, 4)
+        table.setHorizontalHeaderLabels(["ID", "Nombre", "Direccion", "Costo"])
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+        self.peajes_detail_table = table
+
+        layout.addWidget(header)
+        layout.addWidget(table, stretch=1)
+        return panel
 
     def _build_statistics_tab(self) -> QWidget:
         tab = QWidget()
@@ -1046,8 +1196,14 @@ class MainWindow(QMainWindow):
 
     def _peaje_rows(self) -> list[tuple[int, list[str]]]:
         return [
+            (item.id, [item.nombre])
+            for item in self.peaje_repository.list_empresas()
+        ]
+
+    def _peajes_detail_rows(self, empresa_id: int) -> list[tuple[int, list[str]]]:
+        return [
             (item.id, [item.nombre, item.direccion, _format_money(item.costo)])
-            for item in self.peaje_repository.list_all()
+            for item in self.peaje_repository.list_all(empresa_id=empresa_id)
         ]
 
     def _build_static_table_tab(
@@ -1091,6 +1247,10 @@ class MainWindow(QMainWindow):
         edit_callback: Callable[[], None] | None = None,
         delete_callback: Callable[[], None] | None = None,
         extra_actions: list[tuple[str, Callable[[], None]]] | None = None,
+        create_label: str = "Crear",
+        edit_label: str = "Editar",
+        delete_label: str = "Eliminar",
+        action_order: tuple[str, ...] = ("create", "edit", "delete", "extra"),
     ) -> QWidget:
         panel = QFrame()
         panel.setObjectName("panel")
@@ -1115,6 +1275,10 @@ class MainWindow(QMainWindow):
                     edit_callback=edit_callback,
                     delete_callback=delete_callback,
                     extra_actions=extra_actions,
+                    create_label=create_label,
+                    edit_label=edit_label,
+                    delete_label=delete_label,
+                    action_order=action_order,
                 )
             )
 
@@ -1161,6 +1325,22 @@ class MainWindow(QMainWindow):
                 table.setItem(row_index, column_index, item)
         table.resizeColumnsToContents()
 
+    def _populate_table_rows(
+        self,
+        table: QTableWidget,
+        rows: list[tuple[int, list[str]]],
+    ) -> None:
+        table.setRowCount(len(rows))
+        for row_index, (row_id, row) in enumerate(rows):
+            id_item = QTableWidgetItem(str(row_id))
+            id_item.setFlags(id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            table.setItem(row_index, 0, id_item)
+            for column_index, value in enumerate(row, start=1):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                table.setItem(row_index, column_index, item)
+        table.resizeColumnsToContents()
+
     def _refresh_object_table(self, title: str) -> None:
         loaders = {
             "Clientes": self._cliente_rows,
@@ -1174,6 +1354,35 @@ class MainWindow(QMainWindow):
         loader = loaders.get(title)
         if loader is not None:
             self._populate_object_table(title, loader())
+        if title == "Peajes":
+            self._refresh_peajes_detail_table()
+
+    def _show_selected_empresa_peajes(self) -> None:
+        empresa_id = self._selected_object_id("Peajes")
+        if empresa_id is None:
+            return
+
+        empresa = self._find_by_id(self.peaje_repository.list_empresas(), empresa_id)
+        self.selected_peaje_empresa_id = empresa_id
+        if self.peajes_detail_title is not None:
+            empresa_nombre = getattr(empresa, "nombre", f"Empresa {empresa_id}")
+            self.peajes_detail_title.setText(f"Peajes - {empresa_nombre}")
+        if self.peajes_detail_panel is not None:
+            self.peajes_detail_panel.setVisible(True)
+        self._refresh_peajes_detail_table()
+
+    def _close_empresa_peajes(self) -> None:
+        self.selected_peaje_empresa_id = None
+        if self.peajes_detail_panel is not None:
+            self.peajes_detail_panel.setVisible(False)
+
+    def _refresh_peajes_detail_table(self) -> None:
+        if self.peajes_detail_table is None or self.selected_peaje_empresa_id is None:
+            return
+        self._populate_table_rows(
+            self.peajes_detail_table,
+            self._peajes_detail_rows(self.selected_peaje_empresa_id),
+        )
 
     def _check_updates_on_startup(self) -> None:
         self._start_update_check(interactive=False)
@@ -1459,6 +1668,36 @@ class MainWindow(QMainWindow):
         item = table.item(row, 0)
         return None if item is None else int(item.text())
 
+    def _selected_peaje_id(self) -> int | None:
+        table = self.peajes_detail_table
+        if table is None:
+            return None
+
+        row = table.currentRow()
+        if row < 0:
+            QMessageBox.warning(
+                self,
+                "Seleccion requerida",
+                "Selecciona un peaje primero.",
+            )
+            return None
+
+        item = table.item(row, 0)
+        return None if item is None else int(item.text())
+
+    def _selected_peaje_ids(self) -> tuple[int, ...]:
+        table = self.peajes_detail_table
+        if table is None:
+            return ()
+
+        rows = sorted({index.row() for index in table.selectedIndexes()})
+        peaje_ids: list[int] = []
+        for row in rows:
+            item = table.item(row, 0)
+            if item is not None:
+                peaje_ids.append(int(item.text()))
+        return tuple(peaje_ids)
+
     def _selected_viaje_id(self) -> int | None:
         if self.table is None:
             return None
@@ -1700,6 +1939,10 @@ class MainWindow(QMainWindow):
         edit_callback: Callable[[], None] | None = None,
         delete_callback: Callable[[], None] | None = None,
         extra_actions: list[tuple[str, Callable[[], None]]] | None = None,
+        create_label: str = "Crear",
+        edit_label: str = "Editar",
+        delete_label: str = "Eliminar",
+        action_order: tuple[str, ...] = ("create", "edit", "delete", "extra"),
     ) -> QWidget:
         actions = QWidget()
         actions.setObjectName("actionButtons")
@@ -1707,7 +1950,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        create_button = QPushButton("Crear")
+        create_button = QPushButton(create_label)
         create_button.setObjectName("primaryButton")
         create_button.clicked.connect(
             create_callback
@@ -1715,14 +1958,14 @@ class MainWindow(QMainWindow):
             else lambda: self._show_pending_action(section_label, "Crear")
         )
 
-        edit_button = QPushButton("Editar")
+        edit_button = QPushButton(edit_label)
         edit_button.clicked.connect(
             edit_callback
             if edit_callback is not None
             else lambda: self._show_pending_action(section_label, "Editar")
         )
 
-        delete_button = QPushButton("Eliminar")
+        delete_button = QPushButton(delete_label)
         delete_button.setObjectName("dangerButton")
         delete_button.clicked.connect(
             delete_callback
@@ -1730,13 +1973,19 @@ class MainWindow(QMainWindow):
             else lambda: self._show_pending_action(section_label, "Eliminar")
         )
 
-        layout.addWidget(create_button)
-        layout.addWidget(edit_button)
-        layout.addWidget(delete_button)
+        buttons_by_name = {
+            "create": [create_button],
+            "edit": [edit_button],
+            "delete": [delete_button],
+            "extra": [],
+        }
         for label, callback in extra_actions or []:
             button = QPushButton(label)
             button.clicked.connect(callback)
-            layout.addWidget(button)
+            buttons_by_name["extra"].append(button)
+        for group_name in action_order:
+            for button in buttons_by_name.get(group_name, []):
+                layout.addWidget(button)
         return actions
 
     def _show_pending_action(self, section_label: str, action: str) -> None:
@@ -1792,6 +2041,12 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"No se pudo completar la accion.\n{exc}")
             return
         QMessageBox.information(self, "Listo", success_message)
+
+    def _run_silent_data_action(self, callback: Callable[[], None]) -> None:
+        try:
+            callback()
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"No se pudo completar la accion.\n{exc}")
 
     def _create_cliente(self) -> None:
         values = self._record_values("Crear cliente", self._cliente_fields())
@@ -2151,27 +2406,93 @@ class MainWindow(QMainWindow):
                 lambda: self._refresh_object_table("Vehiculos"),
             )
 
+    def _create_peaje_empresa(self) -> None:
+        values = self._record_values(
+            "Crear empresa de peajes",
+            self._peaje_empresa_fields(),
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.peaje_repository.create_empresa(
+                nombre=str(values["nombre"]).strip(),
+            )
+            self._refresh_object_table("Peajes")
+
+        self._run_data_action("Empresa de peajes creada.", save)
+
+    def _edit_peaje_empresa(self) -> None:
+        empresa_id = self._selected_object_id("Peajes")
+        if empresa_id is None:
+            return
+        empresa = self._find_by_id(self.peaje_repository.list_empresas(), empresa_id)
+        if empresa is None:
+            return
+        values = self._record_values(
+            "Editar empresa de peajes",
+            self._peaje_empresa_fields({"nombre": empresa.nombre}),
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.peaje_repository.update_empresa(
+                empresa_id,
+                nombre=str(values["nombre"]).strip(),
+            )
+            self._refresh_object_table("Peajes")
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Empresa de peajes actualizada.", save)
+
+    def _delete_peaje_empresa(self) -> None:
+        empresa_id = self._selected_object_id("Peajes")
+        if empresa_id is None or not self._confirm_delete("empresa de peajes"):
+            return
+
+        def delete_and_refresh() -> None:
+            self.peaje_repository.delete_empresa(empresa_id)
+            if self.selected_peaje_empresa_id == empresa_id:
+                self._close_empresa_peajes()
+            self._refresh_object_table("Peajes")
+            self._refresh_table()
+            self._refresh_viaje_form_options()
+
+        self._run_silent_data_action(delete_and_refresh)
+
     def _create_peaje(self) -> None:
+        if self.selected_peaje_empresa_id is None:
+            QMessageBox.warning(
+                self,
+                "Seleccion requerida",
+                "Selecciona una empresa y abre su lista de peajes primero.",
+            )
+            return
         values = self._record_values("Crear peaje", self._peaje_fields())
         if values is None:
             return
 
         def save() -> None:
             self.peaje_repository.create(
+                empresa_id=self.selected_peaje_empresa_id or 0,
                 nombre=str(values["nombre"]).strip(),
                 direccion=str(values["direccion"]).strip(),
                 costo=float(values["costo"]),
             )
-            self._refresh_object_table("Peajes")
+            self._refresh_peajes_detail_table()
             self._refresh_viaje_form_options()
 
         self._run_data_action("Peaje creado.", save)
 
     def _edit_peaje(self) -> None:
-        peaje_id = self._selected_object_id("Peajes")
-        if peaje_id is None:
+        peaje_id = self._selected_peaje_id()
+        if peaje_id is None or self.selected_peaje_empresa_id is None:
             return
-        peaje = self._find_by_id(self.peaje_repository.list_all(), peaje_id)
+        peaje = self._find_by_id(
+            self.peaje_repository.list_all(empresa_id=self.selected_peaje_empresa_id),
+            peaje_id,
+        )
         if peaje is None:
             return
         values = self._record_values(
@@ -2190,24 +2511,60 @@ class MainWindow(QMainWindow):
         def save() -> None:
             self.peaje_repository.update(
                 peaje_id,
+                empresa_id=self.selected_peaje_empresa_id or 0,
                 nombre=str(values["nombre"]).strip(),
                 direccion=str(values["direccion"]).strip(),
                 costo=float(values["costo"]),
             )
-            self._refresh_object_table("Peajes")
+            self._refresh_peajes_detail_table()
             self._refresh_table()
             self._refresh_viaje_form_options()
 
         self._run_data_action("Peaje actualizado.", save)
 
     def _delete_peaje(self) -> None:
-        peaje_id = self._selected_object_id("Peajes")
+        peaje_id = self._selected_peaje_id()
         if peaje_id is not None:
             self._soft_delete_object(
                 "peaje",
                 lambda: self.peaje_repository.delete(peaje_id),
-                lambda: self._refresh_object_table("Peajes"),
+                self._refresh_peajes_detail_table,
             )
+
+    def _bulk_update_peajes(self) -> None:
+        peaje_ids = self._selected_peaje_ids()
+        if not peaje_ids:
+            QMessageBox.warning(
+                self,
+                "Seleccion requerida",
+                "Selecciona uno o mas peajes primero.",
+            )
+            return
+
+        values = self._record_values(
+            "Actualizar varios peajes",
+            [
+                {
+                    "key": "costo",
+                    "label": "Nuevo costo",
+                    "type": "money",
+                    "value": 0,
+                }
+            ],
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.peaje_repository.update_cost_many(
+                peaje_ids,
+                costo=float(values["costo"]),
+            )
+            self._refresh_peajes_detail_table()
+            self._refresh_table()
+            self._refresh_viaje_form_options()
+
+        self._run_data_action("Peajes actualizados.", save)
 
     def _edit_viaje(self) -> None:
         viaje_id = self._selected_viaje_id()
@@ -2247,10 +2604,7 @@ class MainWindow(QMainWindow):
         if viaje_id is None:
             return
         if self._confirm_delete("viaje"):
-            self._run_data_action(
-                "Viaje eliminado.",
-                lambda: self._delete_viaje_and_refresh(viaje_id),
-            )
+            self._run_silent_data_action(lambda: self._delete_viaje_and_refresh(viaje_id))
 
     def _delete_viaje_and_refresh(self, viaje_id: int) -> None:
         self.viaje_repository.delete(viaje_id)
@@ -2272,7 +2626,7 @@ class MainWindow(QMainWindow):
             self._refresh_table()
             self._refresh_viaje_form_options()
 
-        self._run_data_action(f"{label.title()} eliminado.", delete_and_refresh)
+        self._run_silent_data_action(delete_and_refresh)
 
     def _confirm_delete(self, label: str) -> bool:
         response = QMessageBox.question(
@@ -2304,6 +2658,7 @@ class MainWindow(QMainWindow):
 
     def _clear_database_and_refresh(self) -> None:
         clear_database(self.database_path)
+        self._close_empresa_peajes()
         for title in ("Clientes", "Lugares", "Chofer", "T.Carga", "Vehiculos", "Peajes"):
             self._refresh_object_table(title)
         self._refresh_viaje_form_options()
@@ -2473,6 +2828,15 @@ class MainWindow(QMainWindow):
                 "type": "money",
                 "value": values.get("costo", 0),
             },
+        ]
+
+    def _peaje_empresa_fields(
+        self,
+        values: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        values = values or {}
+        return [
+            {"key": "nombre", "label": "Nombre", "value": values.get("nombre", "")},
         ]
 
     def _viaje_fields_from_row(self, row: int) -> list[dict[str, object]]:
@@ -3092,6 +3456,12 @@ class MainWindow(QMainWindow):
             items = [("General", "GENERAL"), ("Carga peligrosa", "PELIGROSA")]
         return self._build_combo(items)
 
+    def _build_peaje_empresa_combo(self) -> QComboBox:
+        return self._build_combo(
+            [("Todas", None)]
+            + [(item.nombre, item.id) for item in self.peaje_repository.list_empresas()]
+        )
+
     def _refresh_viaje_form_options(self) -> None:
         combo_sources = {
             "cliente": [("Seleccionar cliente", None)]
@@ -3121,6 +3491,8 @@ class MainWindow(QMainWindow):
                 (item.etiqueta, item.id)
                 for item in self.vehiculo_repository.list_all("SEMI")
             ],
+            "peaje_empresa": [("Todas", None)]
+            + [(item.nombre, item.id) for item in self.peaje_repository.list_empresas()],
         }
         if not combo_sources["tipo_carga"]:
             combo_sources["tipo_carga"] = [
@@ -3131,28 +3503,53 @@ class MainWindow(QMainWindow):
         for key, items in combo_sources.items():
             widget = self.form_widgets.get(key)
             if isinstance(widget, QComboBox):
+                selected_value = widget.currentData()
                 was_editable = widget.isEditable()
                 widget.clear()
                 for label, value in items:
                     widget.addItem(label, value)
+                selected_index = widget.findData(selected_value)
+                if selected_index >= 0:
+                    widget.setCurrentIndex(selected_index)
                 if was_editable:
                     widget.setCurrentText("")
 
-        peajes = self.form_widgets.get("peajes")
-        if isinstance(peajes, QListWidget):
-            peajes.clear()
-            for item in self.peaje_repository.list_all():
-                peaje_item = QListWidgetItem(
-                    f"{item.nombre} - {_format_money(item.costo)}"
-                )
-                peaje_item.setFlags(
-                    peaje_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-                )
-                peaje_item.setCheckState(Qt.CheckState.Unchecked)
-                peaje_item.setData(Qt.ItemDataRole.UserRole, item.id)
-                peajes.addItem(peaje_item)
-
+        self._refresh_peaje_checklist()
         self._apply_viaje_field_visibility()
+
+    def _selected_peaje_empresa_filter(self) -> int | None:
+        widget = self.form_widgets.get("peaje_empresa")
+        if not isinstance(widget, QComboBox):
+            return None
+        value = widget.currentData()
+        return value if isinstance(value, int) else None
+
+    def _refresh_peaje_checklist(self) -> None:
+        peajes = self.form_widgets.get("peajes")
+        if not isinstance(peajes, QListWidget):
+            return
+
+        checked_ids = set(self._checked_peaje_ids())
+        empresa_id = self._selected_peaje_empresa_filter()
+        visible_peajes = self.peaje_repository.list_all(empresa_id=empresa_id)
+        visible_ids = {item.id for item in visible_peajes}
+        selected_missing_peajes = [
+            item
+            for item in self.peaje_repository.list_all()
+            if item.id in checked_ids and item.id not in visible_ids
+        ]
+
+        peajes.clear()
+        for item in [*visible_peajes, *selected_missing_peajes]:
+            peaje_item = QListWidgetItem(
+                f"{item.empresa_nombre} - {item.nombre} - {_format_money(item.costo)}"
+            )
+            peaje_item.setFlags(peaje_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            peaje_item.setCheckState(
+                Qt.CheckState.Checked if item.id in checked_ids else Qt.CheckState.Unchecked
+            )
+            peaje_item.setData(Qt.ItemDataRole.UserRole, item.id)
+            peajes.addItem(peaje_item)
 
     def _lugar_options(self, rol: str) -> list[tuple[str, object]]:
         lugares = self.lugar_repository.list_by_viaje_usage(rol)
@@ -3250,6 +3647,78 @@ class MainWindow(QMainWindow):
             if item.checkState() == Qt.CheckState.Checked:
                 peaje_ids.append(int(item.data(Qt.ItemDataRole.UserRole)))
         return tuple(peaje_ids)
+
+
+class StartupAlertsDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget,
+        alerts: list[AppAlert],
+        *,
+        accept_callback: Callable[[AppAlert], bool],
+        validate_callback: Callable[[AppAlert], bool],
+    ) -> None:
+        super().__init__(parent)
+        self.alerts = list(alerts)
+        self.accept_callback = accept_callback
+        self.validate_callback = validate_callback
+        self.current_alert: AppAlert | None = None
+
+        self.setWindowTitle("Alertas")
+        self.setMinimumWidth(520)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+
+        self.counter_label = QLabel()
+        self.counter_label.setObjectName("muted")
+        self.title_label = QLabel()
+        self.title_label.setObjectName("sectionTitle")
+        self.message_label = QLabel()
+        self.message_label.setWordWrap(True)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        self.accept_button = QPushButton("Aceptar")
+        self.validate_button = QPushButton("Validar")
+        self.accept_button.clicked.connect(self._accept_current_alert)
+        self.validate_button.clicked.connect(self._validate_current_alert)
+        button_row.addWidget(self.accept_button)
+        button_row.addWidget(self.validate_button)
+
+        layout.addWidget(self.counter_label)
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.message_label)
+        layout.addLayout(button_row)
+
+        self._show_next_alert()
+
+    def _show_next_alert(self) -> None:
+        if not self.alerts:
+            self.accept()
+            return
+
+        self.current_alert = self.alerts[0]
+        self.counter_label.setText(f"Alertas pendientes: {len(self.alerts)}")
+        self.title_label.setText(self.current_alert.title)
+        self.message_label.setText(self.current_alert.message)
+
+    def _accept_current_alert(self) -> None:
+        if self.current_alert is None:
+            return
+        if self.accept_callback(self.current_alert):
+            self._close_current_alert()
+
+    def _validate_current_alert(self) -> None:
+        if self.current_alert is None:
+            return
+        if self.validate_callback(self.current_alert):
+            self._close_current_alert()
+
+    def _close_current_alert(self) -> None:
+        if self.alerts:
+            self.alerts.pop(0)
+        self._show_next_alert()
 
 
 class RecordDialog(QDialog):

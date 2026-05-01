@@ -66,6 +66,16 @@ class Chofer:
 
 
 @dataclass(frozen=True)
+class AppAlert:
+    key: str
+    source: str
+    title: str
+    message: str
+    entity_id: int
+    due_date: str
+
+
+@dataclass(frozen=True)
 class Vehiculo:
     id: int
     tipo: str
@@ -80,8 +90,17 @@ class Vehiculo:
 
 
 @dataclass(frozen=True)
+class EmpresaPeaje:
+    id: int
+    nombre: str
+    activo: bool
+
+
+@dataclass(frozen=True)
 class Peaje:
     id: int
+    empresa_id: int
+    empresa_nombre: str
     nombre: str
     direccion: str
     costo: float
