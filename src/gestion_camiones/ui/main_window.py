@@ -31,6 +31,9 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
+    QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -51,6 +54,8 @@ from gestion_camiones.data.repositories import (
     LugarRepository,
     PeajeRepository,
     TipoCargaRepository,
+    VehiculoCombustibleRepository,
+    VehiculoMantenimientoRepository,
     VehiculoRepository,
     ViajeRepository,
 )
@@ -87,13 +92,13 @@ from gestion_camiones.services.updater import (
 TAB_LABELS = [
     "Cargar viaje",
     "Historial viajes",
+    "Estadisticas",
     "Clientes",
     "Lugares",
     "Chofer",
     "T.Carga",
     "Vehiculos",
     "Peajes",
-    "Estadisticas",
     "Imprimir",
     "Opciones",
 ]
@@ -160,6 +165,22 @@ MONTH_NAMES = (
     "Diciembre",
 )
 
+FONT_SIZE_OPTIONS = (
+    ("base", "Texto general", 14, 10, 24, "General"),
+    ("small", "Texto secundario/chico", 12, 8, 20, "General"),
+    ("page_title", "Titulo de pestaña", 20, 12, 34, "Titulos"),
+    ("section_title", "Titulo de seccion", 16, 10, 28, "Titulos"),
+    ("button", "Botones", 14, 10, 24, "Botones"),
+    ("brand", "Marca lateral", 15, 10, 26, "Navegacion"),
+    ("table_header", "Encabezado de tablas", 12, 8, 20, "Tablas"),
+    ("metric", "Metricas", 24, 14, 36, "Metricas"),
+)
+
+DEFAULT_FONT_SIZES = {
+    key: default
+    for key, _label, default, _minimum, _maximum, _group in FONT_SIZE_OPTIONS
+}
+
 VIAJE_FORM_FIELDS = (
     ("fecha", "Fecha"),
     ("cliente", "Cliente"),
@@ -168,9 +189,9 @@ VIAJE_FORM_FIELDS = (
     ("lugar_carga", "Lugar carga"),
     ("lugar_descarga", "L.Descarga"),
     ("observaciones", "Observaciones"),
-    ("chofer", "Chofer"),
     ("tipo_carga", "T.Carga"),
     ("camion", "Camion"),
+    ("chofer", "Chofer"),
     ("semi", "Semi"),
     ("tarifa", "Tarifa"),
     ("fecha_descarga_tarifa", "F.Desc tarifa"),
@@ -226,6 +247,8 @@ class MainWindow(QMainWindow):
         self.lugar_repository = LugarRepository(database_path)
         self.chofer_repository = ChoferRepository(database_path)
         self.vehiculo_repository = VehiculoRepository(database_path)
+        self.combustible_repository = VehiculoCombustibleRepository(database_path)
+        self.mantenimiento_repository = VehiculoMantenimientoRepository(database_path)
         self.peaje_repository = PeajeRepository(database_path)
         self.tipo_carga_repository = TipoCargaRepository(database_path)
         self.metric_cards: dict[str, MetricCard] = {}
@@ -239,12 +262,27 @@ class MainWindow(QMainWindow):
         self.peajes_detail_title: QLabel | None = None
         self.peajes_detail_table: QTableWidget | None = None
         self.selected_peaje_empresa_id: int | None = None
+        self.mantenimientos_panel: QFrame | None = None
+        self.mantenimientos_title: QLabel | None = None
+        self.mantenimientos_table: QTableWidget | None = None
+        self.historial_mantenimientos_panel: QFrame | None = None
+        self.historial_mantenimientos_combo: QComboBox | None = None
+        self.historial_mantenimientos_table: QTableWidget | None = None
+        self.combustible_panel: QFrame | None = None
+        self.combustible_table: QTableWidget | None = None
+        self.combustible_vehiculo_combo: QComboBox | None = None
+        self.vehiculos_detail_stack: QStackedWidget | None = None
+        self.vehiculos_splitter: QSplitter | None = None
+        self.splitter_save_timers: dict[str, QTimer] = {}
+        self.selected_mantenimiento_vehiculo_id: int | None = None
         self.tabs: QTabWidget | None = None
         self.nav_buttons: dict[str, QPushButton] = {}
         self.page_title_label: QLabel | None = None
         self.page_subtitle_label: QLabel | None = None
         self.new_button: QPushButton | None = None
         self.save_button: QPushButton | None = None
+        self.vehiculos_actions_widget: QWidget | None = None
+        self.peajes_actions_widget: QWidget | None = None
         self.billing_month_combo: QComboBox | None = None
         self.billing_year_combo: QComboBox | None = None
         self.billing_total_card: MetricCard | None = None
@@ -252,9 +290,11 @@ class MainWindow(QMainWindow):
         self.billing_content_widget: QWidget | None = None
         self.billing_toggle_button: QPushButton | None = None
         self.billing_panel_expanded = True
+        self.fuel_consumption_table: QTableWidget | None = None
         self.print_mode_combo: QComboBox | None = None
         self.print_month_combo: QComboBox | None = None
         self.print_year_combo: QComboBox | None = None
+        self.print_client_combo: QComboBox | None = None
         self.print_from_date: QDateEdit | None = None
         self.print_to_date: QDateEdit | None = None
         self.print_table: QTableWidget | None = None
@@ -263,10 +303,12 @@ class MainWindow(QMainWindow):
         self.print_mode_card: QFrame | None = None
         self.print_month_card: QFrame | None = None
         self.print_year_card: QFrame | None = None
+        self.print_client_card: QFrame | None = None
         self.print_from_card: QFrame | None = None
         self.print_to_card: QFrame | None = None
         self.print_rows: list[ViajeResumen] = []
         self.company_name_input: QLineEdit | None = None
+        self.font_size_inputs: dict[str, QSpinBox] = {}
         self.form_widgets: dict[str, QWidget] = {}
         self.viaje_form_row_labels: dict[str, QWidget] = {}
 
@@ -276,8 +318,101 @@ class MainWindow(QMainWindow):
 
         self._build_menu()
         self.setCentralWidget(self._build_shell())
-        self.setStyleSheet(APP_STYLES)
+        self._apply_font_sizes()
         QTimer.singleShot(450, self._show_startup_alerts)
+
+    def _save_app_settings(self) -> None:
+        save_app_settings(self.settings_path, self.app_settings)
+
+    def _settings_bucket(self, key: str) -> dict[str, object]:
+        bucket = self.app_settings.get(key)
+        if not isinstance(bucket, dict):
+            bucket = {}
+            self.app_settings[key] = bucket
+        return bucket
+
+    def _dialog_size(self, key: str) -> tuple[int, int] | None:
+        sizes = self._settings_bucket("dialog_sizes")
+        value = sizes.get(key)
+        if (
+            isinstance(value, list)
+            and len(value) == 2
+            and all(isinstance(item, int | float) for item in value)
+        ):
+            width, height = int(value[0]), int(value[1])
+            if width > 0 and height > 0:
+                return width, height
+        return None
+
+    def _save_dialog_size(self, key: str, width: int, height: int) -> None:
+        self._settings_bucket("dialog_sizes")[key] = [width, height]
+        self._save_app_settings()
+
+    def _restore_splitter_sizes(
+        self,
+        splitter: QSplitter,
+        key: str,
+        fallback: list[int],
+    ) -> None:
+        sizes = self._settings_bucket("splitter_sizes")
+        value = sizes.get(key)
+        if (
+            isinstance(value, list)
+            and len(value) == len(fallback)
+            and all(isinstance(item, int | float) and int(item) >= 0 for item in value)
+            and sum(int(item) for item in value) > 0
+        ):
+            splitter.setSizes([int(item) for item in value])
+            return
+        splitter.setSizes(fallback)
+
+    def _save_splitter_sizes(self, splitter: QSplitter, key: str) -> None:
+        self._settings_bucket("splitter_sizes")[key] = splitter.sizes()
+        self._save_app_settings()
+
+    def _schedule_splitter_size_save(self, splitter: QSplitter, key: str) -> None:
+        timer = self.splitter_save_timers.get(key)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda: self._save_splitter_sizes(splitter, key))
+            self.splitter_save_timers[key] = timer
+        timer.start(700)
+
+    def _font_sizes(self) -> dict[str, int]:
+        saved = self.app_settings.get("font_sizes")
+        if not isinstance(saved, dict):
+            saved = {}
+
+        sizes = DEFAULT_FONT_SIZES.copy()
+        limits = {
+            key: (minimum, maximum)
+            for key, _label, _default, minimum, maximum, _group in FONT_SIZE_OPTIONS
+        }
+        for key, value in saved.items():
+            if key not in sizes or not isinstance(value, int | float):
+                continue
+            minimum, maximum = limits[key]
+            sizes[key] = max(minimum, min(maximum, int(value)))
+        return sizes
+
+    def _apply_font_sizes(self) -> None:
+        self.setStyleSheet(_build_app_styles(self._font_sizes()))
+
+    def _save_font_sizes(self) -> None:
+        sizes = {
+            key: int(input_widget.value())
+            for key, input_widget in self.font_size_inputs.items()
+        }
+        self.app_settings["font_sizes"] = sizes
+        self._save_app_settings()
+        self._apply_font_sizes()
+        self._refresh_object_table("Opciones")
+
+    def _reset_font_sizes(self) -> None:
+        for key, input_widget in self.font_size_inputs.items():
+            input_widget.setValue(DEFAULT_FONT_SIZES[key])
+        self._save_font_sizes()
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("Archivo")
@@ -326,6 +461,20 @@ class MainWindow(QMainWindow):
             self.alert_repository.clear_alert(alert.key)
             self._refresh_object_table("Chofer")
             return True
+        if alert.source == AlertRepository.VEHICLE_MAINTENANCE_SOURCE:
+            validation_values = self._ask_maintenance_due_date(alert)
+            if validation_values is None:
+                return False
+            new_date, new_due_km = validation_values
+            self.mantenimiento_repository.validate_due_date(
+                alert.entity_id,
+                new_date,
+                new_due_km,
+            )
+            self.alert_repository.clear_alert(alert.key)
+            self._refresh_mantenimientos_table()
+            self._refresh_historial_mantenimientos_table()
+            return True
         QMessageBox.warning(
             self,
             "Alerta",
@@ -336,6 +485,7 @@ class MainWindow(QMainWindow):
     def _ask_driver_license_due_date(self, alert: AppAlert) -> str | None:
         dialog = QDialog(self)
         _anchor_child_window(dialog)
+        dialog.setSizeGripEnabled(True)
         dialog.setWindowTitle("Validar registro")
         layout = QVBoxLayout(dialog)
         layout.setSpacing(12)
@@ -349,12 +499,12 @@ class MainWindow(QMainWindow):
         date_input = QDateEdit()
         date_input.setCalendarPopup(True)
         date_input.setDisplayFormat("yyyy-MM-dd")
-        current_due_date = QDate.fromString(alert.due_date, "yyyy-MM-dd")
-        if current_due_date.isValid():
-            default_date = current_due_date.addYears(1)
-        else:
-            default_date = QDate.currentDate()
-        date_input.setDate(default_date)
+        chofer = self._find_by_id(
+            self.chofer_repository.list_all(include_inactive=True),
+            alert.entity_id,
+        )
+        regularidad_meses = getattr(chofer, "regularidad_registro_meses", 12) or 12
+        date_input.setDate(QDate.currentDate().addMonths(int(regularidad_meses)))
 
         form = QFormLayout()
         form.addRow("Vencimiento", date_input)
@@ -374,6 +524,67 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         return date_input.date().toString("yyyy-MM-dd")
+
+    def _ask_maintenance_due_date(self, alert: AppAlert) -> tuple[str, int] | None:
+        dialog = QDialog(self)
+        _anchor_child_window(dialog)
+        dialog.setSizeGripEnabled(True)
+        dialog.setWindowTitle("Validar mantenimiento")
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(12)
+
+        title = QLabel("Nueva fecha de proximo mantenimiento")
+        title.setObjectName("sectionTitle")
+        description = QLabel(
+            "Carga los nuevos valores del proximo mantenimiento. "
+            "La fecha y el kilometraje se sugieren usando la regularidad configurada."
+        )
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+
+        date_input = QDateEdit()
+        date_input.setCalendarPopup(True)
+        date_input.setDisplayFormat("yyyy-MM-dd")
+        mantenimiento = self._find_by_id(
+            self.mantenimiento_repository.list_all(include_inactive=True),
+            alert.entity_id,
+        )
+        regularidad_meses = getattr(mantenimiento, "regularidad_fecha_meses", 0) or 0
+        default_date = QDate.currentDate().addMonths(int(regularidad_meses))
+        date_input.setDate(default_date)
+        km_input = QSpinBox()
+        km_input.setRange(0, 999_999_999)
+        km_input.setSingleStep(1000)
+        regularidad_km = getattr(mantenimiento, "regularidad_km", 0) or 0
+        current_km = 0
+        vehiculo_id = getattr(mantenimiento, "vehiculo_id", None)
+        if isinstance(vehiculo_id, int):
+            vehiculo = self._find_by_id(self.vehiculo_repository.list_all(), vehiculo_id)
+            current_km = getattr(vehiculo, "km_actual", 0) or 0
+        if int(regularidad_km) > 0:
+            km_input.setValue(int(current_km) + int(regularidad_km))
+        else:
+            km_input.setValue(getattr(mantenimiento, "km_proximo_mantenimiento", 0) or 0)
+
+        form = QFormLayout()
+        form.addRow("Proximo mantenimiento", date_input)
+        form.addRow("Km proximo", km_input)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return date_input.date().toString("yyyy-MM-dd"), int(km_input.value())
 
     def _build_shell(self) -> QWidget:
         shell = QWidget()
@@ -439,13 +650,13 @@ class MainWindow(QMainWindow):
         self.tabs.setElideMode(Qt.TextElideMode.ElideRight)
         self.tabs.addTab(self._build_viaje_form_tab(), TAB_LABELS[0])
         self.tabs.addTab(self._build_history_tab(), TAB_LABELS[1])
-        self.tabs.addTab(self._build_clients_tab(), TAB_LABELS[2])
-        self.tabs.addTab(self._build_lugares_tab(), TAB_LABELS[3])
-        self.tabs.addTab(self._build_choferes_tab(), TAB_LABELS[4])
-        self.tabs.addTab(self._build_tipo_carga_tab(), TAB_LABELS[5])
-        self.tabs.addTab(self._build_vehiculos_tab(), TAB_LABELS[6])
-        self.tabs.addTab(self._build_peajes_tab(), TAB_LABELS[7])
-        self.tabs.addTab(self._build_statistics_tab(), TAB_LABELS[8])
+        self.tabs.addTab(self._build_statistics_tab(), TAB_LABELS[2])
+        self.tabs.addTab(self._build_clients_tab(), TAB_LABELS[3])
+        self.tabs.addTab(self._build_lugares_tab(), TAB_LABELS[4])
+        self.tabs.addTab(self._build_choferes_tab(), TAB_LABELS[5])
+        self.tabs.addTab(self._build_tipo_carga_tab(), TAB_LABELS[6])
+        self.tabs.addTab(self._build_vehiculos_tab(), TAB_LABELS[7])
+        self.tabs.addTab(self._build_peajes_tab(), TAB_LABELS[8])
         self.tabs.addTab(self._build_print_tab(), TAB_LABELS[9])
         self.tabs.addTab(self._build_options_tab(), TAB_LABELS[10])
         self.tabs.currentChanged.connect(self._sync_tab_header)
@@ -454,6 +665,43 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(content, stretch=1)
         return main
+
+    def _build_vehiculos_topbar_actions(self) -> QWidget:
+        actions = QWidget()
+        actions.setObjectName("actionButtons")
+        layout = QVBoxLayout(actions)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        rows = (
+            (
+                ("Crear", self._create_vehiculo, "primaryButton"),
+                ("Editar", self._edit_vehiculo, ""),
+                ("Eliminar", self._delete_vehiculo, "dangerButton"),
+            ),
+            (
+                ("Carga de combustible", self._create_combustible_carga, ""),
+                ("Registro combustible", self._show_registro_combustible, ""),
+                ("Mantenimientos", self._show_selected_vehiculo_mantenimientos, ""),
+                (
+                    "Historial de mantenimientos",
+                    self._show_historial_mantenimientos,
+                    "",
+                ),
+            ),
+        )
+        for row in rows:
+            row_layout = QHBoxLayout()
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(8)
+            for label, callback, object_name in row:
+                button = QPushButton(label)
+                if object_name:
+                    button.setObjectName(object_name)
+                button.clicked.connect(callback)
+                row_layout.addWidget(button)
+            layout.addLayout(row_layout)
+        return actions
 
     def _build_topbar(self) -> QWidget:
         topbar = QFrame()
@@ -499,10 +747,30 @@ class MainWindow(QMainWindow):
         save_button.clicked.connect(self._save_viaje)
         self.save_button = save_button
 
+        vehiculos_actions = self._build_vehiculos_topbar_actions()
+        vehiculos_actions.setVisible(False)
+        self.vehiculos_actions_widget = vehiculos_actions
+
+        peajes_actions = self._build_crud_actions(
+            "Peajes",
+            create_callback=self._create_peaje_empresa,
+            edit_callback=self._edit_peaje_empresa,
+            delete_callback=self._delete_peaje_empresa,
+            extra_actions=[("Ver peajes", self._show_selected_empresa_peajes)],
+            create_label="Añadir",
+            edit_label="Editar",
+            delete_label="Eliminar",
+            action_order=("create", "delete", "edit", "extra"),
+        )
+        peajes_actions.setVisible(False)
+        self.peajes_actions_widget = peajes_actions
+
         layout.addWidget(sidebar_toggle)
         layout.addLayout(title_block)
         layout.addStretch()
         layout.addWidget(self.search_input)
+        layout.addWidget(vehiculos_actions)
+        layout.addWidget(peajes_actions)
         layout.addWidget(new_button)
         layout.addWidget(save_button)
         return topbar
@@ -580,6 +848,7 @@ class MainWindow(QMainWindow):
             [(item.etiqueta, item.id)
              for item in self.vehiculo_repository.list_all("CAMION")]
         )
+        camion.currentIndexChanged.connect(self._apply_default_chofer_for_camion)
         semi = self._build_combo(
             [("Sin semi", None)]
             + [(item.etiqueta, item.id)
@@ -642,10 +911,10 @@ class MainWindow(QMainWindow):
         self._add_viaje_form_row(left_form, "lugar_carga", lugar_carga)
         self._add_viaje_form_row(left_form, "lugar_descarga", lugar_descarga)
         self._add_viaje_form_row(left_form, "observaciones", observaciones)
-        self._add_viaje_form_row(left_form, "chofer", chofer)
         self._add_viaje_form_row(left_form, "tipo_carga", tipo_carga)
 
         self._add_viaje_form_row(right_form, "camion", camion)
+        self._add_viaje_form_row(right_form, "chofer", chofer)
         self._add_viaje_form_row(right_form, "semi", semi)
         self._add_viaje_form_row(right_form, "tarifa", tarifa)
         self._add_viaje_form_row(right_form, "fecha_descarga_tarifa", fecha_descarga_tarifa)
@@ -677,7 +946,6 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
-        layout.addWidget(self._build_monthly_billing_panel())
         layout.addWidget(self._build_table_panel(), stretch=1)
         return tab
 
@@ -725,7 +993,14 @@ class MainWindow(QMainWindow):
     def _build_choferes_tab(self) -> QWidget:
         return self._build_static_table_tab(
             "Chofer",
-            ["DNI", "Nombre", "Apellido", "Telefono", "Vencimiento registro"],
+            [
+                "DNI",
+                "Nombre",
+                "Apellido",
+                "Telefono",
+                "Vencimiento registro",
+                "Duracion registro",
+            ],
             self._chofer_rows(),
             create_callback=self._create_chofer,
             edit_callback=self._edit_chofer,
@@ -743,33 +1018,240 @@ class MainWindow(QMainWindow):
         )
 
     def _build_vehiculos_tab(self) -> QWidget:
-        return self._build_static_table_tab(
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setOpaqueResize(True)
+        splitter.setHandleWidth(10)
+        self.vehiculos_splitter = splitter
+
+        vehiculos_panel = self._build_readonly_table_panel(
             "Vehiculos",
-            ["Tipo", "Nombre identificatorio", "Patente", "Observaciones"],
+            [
+                "Tipo",
+                "Nombre identificatorio",
+                "Patente",
+                "Km actuales",
+                "Chofer predeterminado",
+                "Observaciones",
+            ],
             self._vehiculo_rows(),
-            create_callback=self._create_vehiculo,
-            edit_callback=self._edit_vehiculo,
-            delete_callback=self._delete_vehiculo,
+            show_actions=False,
         )
+        vehiculos_panel.setMinimumWidth(260)
+        splitter.addWidget(vehiculos_panel)
+        detail_stack = QStackedWidget()
+        detail_stack.addWidget(self._build_mantenimientos_panel())
+        detail_stack.addWidget(self._build_historial_mantenimientos_panel())
+        detail_stack.addWidget(self._build_combustible_panel())
+        detail_stack.setVisible(False)
+        detail_stack.setMinimumWidth(260)
+        self.vehiculos_detail_stack = detail_stack
+        splitter.addWidget(detail_stack)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+        splitter.splitterMoved.connect(
+            lambda _position, _index: self._schedule_splitter_size_save(
+                splitter,
+                "vehiculos",
+            )
+        )
+
+        layout.addWidget(splitter, stretch=1)
+        QTimer.singleShot(
+            0,
+            lambda: self._restore_splitter_sizes(splitter, "vehiculos", [720, 460]),
+        )
+        return tab
+
+    def _build_mantenimientos_panel(self) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        panel.setMinimumWidth(0)
+        self.mantenimientos_panel = panel
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("panelHeader")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(16, 8, 16, 8)
+        header_layout.setSpacing(8)
+
+        title = QLabel("Mantenimientos")
+        title.setObjectName("sectionTitle")
+        self.mantenimientos_title = title
+        header_layout.addWidget(title)
+
+        for row_actions in (
+            (
+                ("Cerrar", self._close_mantenimientos, ""),
+                ("Agregar", self._create_mantenimiento, "primaryButton"),
+            ),
+            (
+                ("Editar", self._edit_mantenimiento, ""),
+                ("Eliminar", self._delete_mantenimiento, "dangerButton"),
+            ),
+        ):
+            button_row = QHBoxLayout()
+            button_row.setContentsMargins(0, 0, 0, 0)
+            button_row.setSpacing(8)
+            for label, callback, object_name in row_actions:
+                button = QPushButton(label)
+                if object_name:
+                    button.setObjectName(object_name)
+                button.clicked.connect(callback)
+                button_row.addWidget(button)
+            button_row.addStretch()
+            header_layout.addLayout(button_row)
+
+        table = QTableWidget(0, 8)
+        table.setHorizontalHeaderLabels(
+            [
+                "ID",
+                "Descripcion",
+                "Ultimo mantenimiento",
+                "Proximo mantenimiento",
+                "Km proximo",
+                "Regularidad fecha",
+                "Regularidad km",
+                "Obs",
+            ]
+        )
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.mantenimientos_table = table
+
+        layout.addWidget(header)
+        layout.addWidget(table, stretch=1)
+        return panel
+
+    def _build_historial_mantenimientos_panel(self) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        panel.setMinimumWidth(0)
+        self.historial_mantenimientos_panel = panel
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("panelHeader")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(16, 8, 16, 8)
+        header_layout.setSpacing(8)
+
+        title = QLabel("Historial de mantenimientos")
+        title.setObjectName("sectionTitle")
+        header_layout.addWidget(title)
+
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(8)
+        combo = self._build_mantenimiento_vehiculo_combo()
+        combo.currentIndexChanged.connect(self._refresh_historial_mantenimientos_table)
+        self.historial_mantenimientos_combo = combo
+        close_button = QPushButton("Cerrar historial")
+        close_button.clicked.connect(self._close_historial_mantenimientos)
+        controls.addWidget(combo, stretch=1)
+        controls.addWidget(close_button)
+        header_layout.addLayout(controls)
+
+        table = QTableWidget(0, 6)
+        table.setHorizontalHeaderLabels(
+            [
+                "ID",
+                "Vehiculo",
+                "Realizado",
+                "Programado",
+                "Km programado",
+                "Fuera de tiempo",
+            ]
+        )
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.historial_mantenimientos_table = table
+
+        layout.addWidget(header)
+        layout.addWidget(table, stretch=1)
+        return panel
+
+    def _build_combustible_panel(self) -> QFrame:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        panel.setMinimumWidth(0)
+        self.combustible_panel = panel
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("panelHeader")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(16, 8, 16, 8)
+        header_layout.setSpacing(8)
+
+        title = QLabel("Registro de carga de combustible")
+        title.setObjectName("sectionTitle")
+        header_layout.addWidget(title)
+
+        controls = QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(8)
+        combo = self._build_combustible_vehiculo_combo()
+        combo.currentIndexChanged.connect(self._refresh_combustible_table)
+        self.combustible_vehiculo_combo = combo
+        close_button = QPushButton("Cerrar registro")
+        close_button.clicked.connect(self._close_registro_combustible)
+        controls.addWidget(combo, stretch=1)
+        controls.addWidget(close_button)
+        header_layout.addLayout(controls)
+
+        table = QTableWidget(0, 5)
+        table.setHorizontalHeaderLabels(
+            [
+                "ID",
+                "Camion",
+                "Fecha carga",
+                "Lts cargados",
+                "Km actual camion",
+            ]
+        )
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.combustible_table = table
+
+        layout.addWidget(header)
+        layout.addWidget(table, stretch=1)
+        return panel
 
     def _build_peajes_tab(self) -> QWidget:
         tab = QWidget()
-        layout = QHBoxLayout(tab)
+        layout = QVBoxLayout(tab)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
+        layout.setSpacing(0)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setOpaqueResize(True)
 
         empresas_panel = self._build_readonly_table_panel(
             "Peajes",
             ["Empresa"],
             self._peaje_rows(),
-            create_callback=self._create_peaje_empresa,
-            edit_callback=self._edit_peaje_empresa,
-            delete_callback=self._delete_peaje_empresa,
-            extra_actions=[("Ver peajes", self._show_selected_empresa_peajes)],
-            create_label="Añadir",
-            edit_label="Editar",
-            delete_label="Eliminar",
-            action_order=("create", "delete", "edit", "extra"),
+            show_actions=False,
         )
         empresas_table = self.object_tables.get("Peajes")
         if empresas_table is not None:
@@ -777,8 +1259,20 @@ class MainWindow(QMainWindow):
                 lambda _item: self._show_selected_empresa_peajes()
             )
 
-        layout.addWidget(empresas_panel, stretch=3)
-        layout.addWidget(self._build_peajes_detail_panel(), stretch=2)
+        splitter.addWidget(empresas_panel)
+        splitter.addWidget(self._build_peajes_detail_panel())
+        splitter.splitterMoved.connect(
+            lambda _position, _index: self._schedule_splitter_size_save(
+                splitter,
+                "peajes",
+            )
+        )
+
+        layout.addWidget(splitter, stretch=1)
+        QTimer.singleShot(
+            0,
+            lambda: self._restore_splitter_sizes(splitter, "peajes", [720, 420]),
+        )
         return tab
 
     def _build_peajes_detail_panel(self) -> QFrame:
@@ -839,14 +1333,21 @@ class MainWindow(QMainWindow):
         return panel
 
     def _build_statistics_tab(self) -> QWidget:
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(20)
 
         layout.addLayout(self._build_metrics())
+        layout.addWidget(self._build_fuel_consumption_panel())
+        layout.addWidget(self._build_monthly_billing_panel())
         layout.addStretch()
-        return tab
+
+        scroll = QScrollArea()
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        return scroll
 
     def _build_print_tab(self) -> QWidget:
         tab = QWidget()
@@ -887,6 +1388,7 @@ class MainWindow(QMainWindow):
             [
                 ("Mensual", "monthly"),
                 ("Anual", "annual"),
+                ("Por cliente", "client"),
                 ("Cliente Ricco", "ricco"),
             ]
         )
@@ -948,6 +1450,16 @@ class MainWindow(QMainWindow):
         to_card = self._build_billing_filter_card("Hasta", to_date)
         self.print_to_card = to_card
         top_controls.addWidget(to_card)
+
+        client_combo = self._build_combo(
+            [(item.etiqueta, item.etiqueta) for item in self.cliente_repository.list_all()]
+        )
+        client_combo.currentIndexChanged.connect(self._refresh_print_report)
+        self.print_client_combo = client_combo
+        client_card = self._build_billing_filter_card("Cliente", client_combo)
+        self.print_client_card = client_card
+        top_controls.addWidget(client_card)
+
         top_controls.addStretch()
 
         count_card = MetricCard("Viajes del periodo", "0")
@@ -1044,6 +1556,7 @@ class MainWindow(QMainWindow):
             )
         )
         layout.addWidget(self._build_company_settings_panel())
+        layout.addWidget(self._build_font_size_settings_panel())
         layout.addWidget(self._build_updates_panel())
         layout.addWidget(self._build_database_tools_panel())
         layout.addStretch()
@@ -1055,11 +1568,19 @@ class MainWindow(QMainWindow):
         return scroll
 
     def _options_rows(self) -> list[tuple[int, list[str]]]:
+        sizes = self._font_sizes()
         return [
             (1, ["Base de datos", str(self.database_path)]),
             (2, ["Empresa", self.company_name]),
             (3, ["Actualizaciones", "GitHub Releases"]),
             (4, ["Modo", "Cliente sin servidor"]),
+            (5, ["Texto general", f"{sizes['base']} px"]),
+            (6, ["Texto secundario/chico", f"{sizes['small']} px"]),
+            (7, ["Titulos", f"{sizes['page_title']} / {sizes['section_title']} px"]),
+            (8, ["Botones", f"{sizes['button']} px"]),
+            (9, ["Navegacion lateral", f"{sizes['brand']} px"]),
+            (10, ["Tablas", f"{sizes['table_header']} px"]),
+            (11, ["Metricas", f"{sizes['metric']} px"]),
         ]
 
     def _save_company_name(self) -> None:
@@ -1068,7 +1589,7 @@ class MainWindow(QMainWindow):
         company_name = normalize_company_name(self.company_name_input.text())
         self.company_name = company_name
         self.app_settings["company_name"] = company_name
-        save_app_settings(self.settings_path, self.app_settings)
+        self._save_app_settings()
         self.company_name_input.setText(company_name)
         self._refresh_object_table("Opciones")
         QMessageBox.information(self, "Empresa", "Nombre de empresa guardado.")
@@ -1107,6 +1628,73 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
         layout.addWidget(description)
         layout.addLayout(controls)
+        return panel
+
+    def _build_font_size_settings_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("Tamanos de letra")
+        title.setObjectName("sectionTitle")
+        description = QLabel(
+            "Ajusta los tamanos principales de la interfaz. Se aplican al guardar."
+        )
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+
+        sizes = self._font_sizes()
+        self.font_size_inputs = {}
+        groups: dict[str, list[tuple[str, str, int, int, int]]] = {}
+        for key, label, default, minimum, maximum, group in FONT_SIZE_OPTIONS:
+            groups.setdefault(group, []).append((key, label, default, minimum, maximum))
+
+        grouped_controls = QGridLayout()
+        grouped_controls.setHorizontalSpacing(24)
+        grouped_controls.setVerticalSpacing(16)
+        for column, (group, options) in enumerate(groups.items()):
+            group_layout = QVBoxLayout()
+            group_layout.setSpacing(8)
+            group_title = QLabel(group)
+            group_title.setObjectName("sectionTitle")
+            group_layout.addWidget(group_title)
+            for key, label, default, minimum, maximum in options:
+                row_layout = QHBoxLayout()
+                row_layout.setSpacing(10)
+                label_widget = QLabel(label)
+                input_widget = QSpinBox()
+                input_widget.setRange(minimum, maximum)
+                input_widget.setSingleStep(1)
+                input_widget.setSuffix(" px")
+                input_widget.setValue(sizes.get(key, default))
+                self.font_size_inputs[key] = input_widget
+                row_layout.addWidget(label_widget, stretch=1)
+                row_layout.addWidget(input_widget)
+                group_layout.addLayout(row_layout)
+            group_layout.addStretch()
+            grouped_controls.addLayout(group_layout, column // 3, column % 3)
+
+        save_button = QPushButton("Guardar tamanos")
+        save_button.setObjectName("primaryButton")
+        save_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_button.clicked.connect(self._save_font_sizes)
+
+        reset_button = QPushButton("Restablecer tamanos")
+        reset_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        reset_button.clicked.connect(self._reset_font_sizes)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(12)
+        buttons.addWidget(save_button)
+        buttons.addWidget(reset_button)
+        buttons.addStretch()
+
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addLayout(grouped_controls)
+        layout.addLayout(buttons)
         return panel
 
     def _build_database_tools_panel(self) -> QWidget:
@@ -1205,6 +1793,7 @@ class MainWindow(QMainWindow):
                     item.apellido,
                     item.numero_telefono,
                     item.fecha_vencimiento_registro,
+                    str(item.regularidad_registro_meses),
                 ],
             )
             for item in self.chofer_repository.list_all()
@@ -1224,10 +1813,64 @@ class MainWindow(QMainWindow):
                     item.tipo.title(),
                     item.nombre_identificatorio,
                     item.patente,
+                    str(item.km_actual),
+                    item.chofer_predeterminado_nombre,
                     item.observaciones,
                 ],
             )
             for item in self.vehiculo_repository.list_all()
+        ]
+
+    def _mantenimiento_rows(self, vehiculo_id: int) -> list[tuple[int, list[str]]]:
+        return [
+            (
+                item.id,
+                [
+                    item.descripcion,
+                    item.fecha_ultimo_mantenimiento,
+                    item.fecha_proximo_mantenimiento,
+                    str(item.km_proximo_mantenimiento),
+                    str(item.regularidad_fecha_meses),
+                    str(item.regularidad_km),
+                    item.observaciones,
+                ],
+            )
+            for item in self.mantenimiento_repository.list_all(vehiculo_id=vehiculo_id)
+        ]
+
+    def _historial_mantenimiento_rows(
+        self,
+        vehiculo_id: int | None = None,
+    ) -> list[tuple[int, list[str]]]:
+        return [
+            (
+                item.id,
+                [
+                    item.vehiculo_etiqueta,
+                    item.fecha_ultimo_mantenimiento,
+                    item.fecha_proximo_mantenimiento,
+                    str(item.km_proximo_mantenimiento),
+                    "Si" if item.fuera_de_tiempo else "No",
+                ],
+            )
+            for item in self.mantenimiento_repository.list_history(vehiculo_id=vehiculo_id)
+        ]
+
+    def _combustible_rows(
+        self,
+        vehiculo_id: int | None = None,
+    ) -> list[tuple[int, list[str]]]:
+        return [
+            (
+                item.id,
+                [
+                    item.vehiculo_etiqueta,
+                    item.fecha_carga,
+                    _format_decimal(item.litros_cargados),
+                    str(item.km_actual_camion),
+                ],
+            )
+            for item in self.combustible_repository.list_all(vehiculo_id=vehiculo_id)
         ]
 
     def _peaje_rows(self) -> list[tuple[int, list[str]]]:
@@ -1392,6 +2035,208 @@ class MainWindow(QMainWindow):
             self._populate_object_table(title, loader())
         if title == "Peajes":
             self._refresh_peajes_detail_table()
+        if title == "Vehiculos":
+            self._refresh_mantenimiento_vehiculo_combo()
+            self._refresh_combustible_vehiculo_combo()
+            self._refresh_mantenimientos_table()
+            self._refresh_historial_mantenimientos_table()
+            self._refresh_combustible_table()
+            self._refresh_fuel_consumption_table()
+
+    def _show_selected_vehiculo_mantenimientos(self) -> None:
+        vehiculo_id = self._selected_object_id("Vehiculos")
+        if vehiculo_id is None:
+            return
+
+        vehiculo = self._find_by_id(self.vehiculo_repository.list_all(), vehiculo_id)
+        vehiculo_label = getattr(vehiculo, "etiqueta", f"Vehiculo {vehiculo_id}")
+        self.selected_mantenimiento_vehiculo_id = vehiculo_id
+        if self.mantenimientos_title is not None:
+            self.mantenimientos_title.setText(f"Mantenimientos - {vehiculo_label}")
+        if (
+            self.vehiculos_detail_stack is not None
+            and self.mantenimientos_panel is not None
+        ):
+            self.vehiculos_detail_stack.setCurrentWidget(self.mantenimientos_panel)
+            self.vehiculos_detail_stack.setVisible(True)
+            self._ensure_vehiculos_detail_width()
+        self._refresh_mantenimientos_table()
+
+    def _close_mantenimientos(self) -> None:
+        self.selected_mantenimiento_vehiculo_id = None
+        if self.vehiculos_detail_stack is not None:
+            self.vehiculos_detail_stack.setVisible(False)
+
+    def _show_historial_mantenimientos(self) -> None:
+        self.selected_mantenimiento_vehiculo_id = None
+        self._refresh_mantenimiento_vehiculo_combo()
+        if (
+            self.vehiculos_detail_stack is not None
+            and self.historial_mantenimientos_panel is not None
+        ):
+            self.vehiculos_detail_stack.setCurrentWidget(self.historial_mantenimientos_panel)
+            self.vehiculos_detail_stack.setVisible(True)
+            self._ensure_vehiculos_detail_width()
+        self._refresh_historial_mantenimientos_table()
+
+    def _close_historial_mantenimientos(self) -> None:
+        if self.vehiculos_detail_stack is not None:
+            self.vehiculos_detail_stack.setVisible(False)
+
+    def _show_registro_combustible(self) -> None:
+        self._refresh_combustible_vehiculo_combo()
+        vehiculo_id = self._selected_object_id("Vehiculos")
+        if vehiculo_id is not None and self.combustible_vehiculo_combo is not None:
+            vehiculo = self._find_by_id(
+                self.vehiculo_repository.list_all("CAMION"),
+                vehiculo_id,
+            )
+            if vehiculo is not None:
+                index = self.combustible_vehiculo_combo.findData(vehiculo_id)
+                if index >= 0:
+                    self.combustible_vehiculo_combo.setCurrentIndex(index)
+        if (
+            self.vehiculos_detail_stack is not None
+            and self.combustible_panel is not None
+        ):
+            self.vehiculos_detail_stack.setCurrentWidget(self.combustible_panel)
+            self.vehiculos_detail_stack.setVisible(True)
+            self._ensure_vehiculos_detail_width()
+        self._refresh_combustible_table()
+
+    def _close_registro_combustible(self) -> None:
+        if self.vehiculos_detail_stack is not None:
+            self.vehiculos_detail_stack.setVisible(False)
+
+    def _ensure_vehiculos_detail_width(self) -> None:
+        if self.vehiculos_splitter is None:
+            return
+        sizes = self.vehiculos_splitter.sizes()
+        if len(sizes) != 2 or sizes[1] >= 320:
+            return
+        total = sum(sizes)
+        detail_width = min(460, max(320, total // 3))
+        self.vehiculos_splitter.setSizes([max(320, total - detail_width), detail_width])
+
+    def _refresh_mantenimientos_table(self) -> None:
+        if (
+            self.mantenimientos_table is None
+            or self.selected_mantenimiento_vehiculo_id is None
+        ):
+            return
+        self._populate_table_rows(
+            self.mantenimientos_table,
+            self._mantenimiento_rows(self.selected_mantenimiento_vehiculo_id),
+        )
+
+    def _refresh_historial_mantenimientos_table(self) -> None:
+        if self.historial_mantenimientos_table is None:
+            return
+        vehiculo_id = None
+        if self.historial_mantenimientos_combo is not None:
+            current_data = self.historial_mantenimientos_combo.currentData()
+            vehiculo_id = current_data if isinstance(current_data, int) else None
+        self._populate_table_rows(
+            self.historial_mantenimientos_table,
+            self._historial_mantenimiento_rows(vehiculo_id),
+        )
+
+    def _refresh_combustible_table(self) -> None:
+        if self.combustible_table is None:
+            return
+        vehiculo_id = None
+        if self.combustible_vehiculo_combo is not None:
+            current_data = self.combustible_vehiculo_combo.currentData()
+            vehiculo_id = current_data if isinstance(current_data, int) else None
+        self._populate_table_rows(
+            self.combustible_table,
+            self._combustible_rows(vehiculo_id),
+        )
+
+    def _build_mantenimiento_vehiculo_combo(self) -> QComboBox:
+        return self._build_combo(
+            [("Todos", None)]
+            + [(item.etiqueta, item.id) for item in self.vehiculo_repository.list_all()]
+        )
+
+    def _build_combustible_vehiculo_combo(self) -> QComboBox:
+        return self._build_combo(
+            [("Todos", None)]
+            + [
+                (item.etiqueta, item.id)
+                for item in self.vehiculo_repository.list_all("CAMION")
+            ]
+        )
+
+    def _refresh_mantenimiento_vehiculo_combo(self) -> None:
+        combo = self.historial_mantenimientos_combo
+        if combo is None:
+            return
+        selected_value = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        for label, value in [("Todos", None)] + [
+            (item.etiqueta, item.id) for item in self.vehiculo_repository.list_all()
+        ]:
+            combo.addItem(label, value)
+        selected_index = combo.findData(selected_value)
+        combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+        combo.blockSignals(False)
+
+    def _refresh_combustible_vehiculo_combo(self) -> None:
+        combo = self.combustible_vehiculo_combo
+        if combo is None:
+            return
+        selected_value = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        for label, value in [("Todos", None)] + [
+            (item.etiqueta, item.id)
+            for item in self.vehiculo_repository.list_all("CAMION")
+        ]:
+            combo.addItem(label, value)
+        selected_index = combo.findData(selected_value)
+        combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+        combo.blockSignals(False)
+
+    def _selected_mantenimiento_id(self) -> int | None:
+        table = self.mantenimientos_table
+        if table is None:
+            return None
+
+        row = table.currentRow()
+        if row < 0:
+            QMessageBox.warning(
+                self,
+                "Seleccion requerida",
+                "Selecciona un mantenimiento primero.",
+            )
+            return None
+
+        item = table.item(row, 0)
+        return None if item is None else int(item.text())
+
+    def _apply_default_chofer_for_camion(self) -> None:
+        camion = self.form_widgets.get("camion")
+        chofer = self.form_widgets.get("chofer")
+        if not isinstance(camion, QComboBox) or not isinstance(chofer, QComboBox):
+            return
+
+        camion_id = camion.currentData()
+        if not isinstance(camion_id, int):
+            return
+
+        vehiculo = self._find_by_id(
+            self.vehiculo_repository.list_all("CAMION"),
+            camion_id,
+        )
+        chofer_id = getattr(vehiculo, "chofer_predeterminado_id", None)
+        if not isinstance(chofer_id, int):
+            return
+
+        index = chofer.findData(chofer_id)
+        if index >= 0:
+            chofer.setCurrentIndex(index)
 
     def _show_selected_empresa_peajes(self) -> None:
         empresa_id = self._selected_object_id("Peajes")
@@ -1768,6 +2613,76 @@ class MainWindow(QMainWindow):
             grid.addWidget(card, 0, column)
 
         return grid
+
+    def _build_fuel_consumption_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        header = QFrame()
+        header.setObjectName("panelHeader")
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(16, 8, 16, 8)
+        header_layout.setSpacing(4)
+        title = QLabel("Consumo de combustible")
+        title.setObjectName("sectionTitle")
+        description = QLabel(
+            "Calculado con el registro de cargas: litros cargados cada 100 km "
+            "recorridos entre cargas sucesivas."
+        )
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+        header_layout.addWidget(title)
+        header_layout.addWidget(description)
+
+        table = QTableWidget(0, 5)
+        table.setHorizontalHeaderLabels(
+            [
+                "Camion",
+                "Cargas",
+                "Km recorridos",
+                "Lts computados",
+                "Consumo lts/100km",
+            ]
+        )
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        table.setAlternatingRowColors(True)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.setMinimumHeight(150)
+        table.setMaximumHeight(240)
+        self.fuel_consumption_table = table
+
+        layout.addWidget(header)
+        layout.addWidget(table)
+        self._refresh_fuel_consumption_table()
+        return panel
+
+    def _refresh_fuel_consumption_table(self) -> None:
+        if self.fuel_consumption_table is None:
+            return
+
+        summaries = self.combustible_repository.consumption_summary()
+        self.fuel_consumption_table.setRowCount(len(summaries))
+        for row_index, summary in enumerate(summaries):
+            values = [
+                summary.vehiculo_etiqueta,
+                str(summary.cargas),
+                str(summary.km_recorridos),
+                _format_decimal(summary.litros_computados),
+                (
+                    _format_decimal(summary.consumo_litros_100km)
+                    if summary.consumo_litros_100km is not None
+                    else "Sin datos"
+                ),
+            ]
+            for column_index, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.fuel_consumption_table.setItem(row_index, column_index, item)
+        self.fuel_consumption_table.resizeColumnsToContents()
 
     def _build_monthly_billing_panel(self) -> QWidget:
         panel = QFrame()
@@ -2153,7 +3068,10 @@ class MainWindow(QMainWindow):
             self._soft_delete_object(
                 "cliente",
                 lambda: self.cliente_repository.delete(cliente_id),
-                lambda: self._refresh_object_table("Clientes"),
+                lambda: (
+                    self._refresh_object_table("Clientes"),
+                    self._refresh_viaje_form_options(),
+                ),
             )
 
     def _configure_cliente_viaje_fields(self) -> None:
@@ -2167,6 +3085,7 @@ class MainWindow(QMainWindow):
 
         dialog = QDialog(self)
         _anchor_child_window(dialog)
+        dialog.setSizeGripEnabled(True)
         dialog.setWindowTitle("Configurar campos carga")
         layout = QVBoxLayout(dialog)
         layout.setSpacing(12)
@@ -2284,6 +3203,7 @@ class MainWindow(QMainWindow):
                 apellido=str(values["apellido"]).strip(),
                 numero_telefono=str(values["numero_telefono"]).strip(),
                 fecha_vencimiento_registro=str(values["fecha_vencimiento_registro"]),
+                regularidad_registro_meses=int(values["regularidad_registro_meses"]),
             )
             self._refresh_object_table("Chofer")
             self._refresh_viaje_form_options()
@@ -2306,6 +3226,7 @@ class MainWindow(QMainWindow):
                     "apellido": chofer.apellido,
                     "numero_telefono": chofer.numero_telefono,
                     "fecha_vencimiento_registro": chofer.fecha_vencimiento_registro,
+                    "regularidad_registro_meses": chofer.regularidad_registro_meses,
                 }
             ),
         )
@@ -2320,6 +3241,7 @@ class MainWindow(QMainWindow):
                 apellido=str(values["apellido"]).strip(),
                 numero_telefono=str(values["numero_telefono"]).strip(),
                 fecha_vencimiento_registro=str(values["fecha_vencimiento_registro"]),
+                regularidad_registro_meses=int(values["regularidad_registro_meses"]),
             )
             self._refresh_object_table("Chofer")
             self._refresh_table()
@@ -2396,6 +3318,10 @@ class MainWindow(QMainWindow):
                 tipo=str(values["tipo"]),
                 nombre_identificatorio=str(values["nombre_identificatorio"]).strip(),
                 patente=str(values["patente"]).strip().upper(),
+                km_actual=int(values["km_actual"]),
+                chofer_predeterminado_id=self._optional_int(
+                    values["chofer_predeterminado_id"]
+                ),
                 observaciones=str(values["observaciones"]).strip(),
             )
             self._refresh_object_table("Vehiculos")
@@ -2417,6 +3343,8 @@ class MainWindow(QMainWindow):
                     "tipo": vehiculo.tipo,
                     "nombre_identificatorio": vehiculo.nombre_identificatorio,
                     "patente": vehiculo.patente,
+                    "km_actual": vehiculo.km_actual,
+                    "chofer_predeterminado_id": vehiculo.chofer_predeterminado_id,
                     "observaciones": vehiculo.observaciones,
                 }
             ),
@@ -2430,6 +3358,10 @@ class MainWindow(QMainWindow):
                 tipo=str(values["tipo"]),
                 nombre_identificatorio=str(values["nombre_identificatorio"]).strip(),
                 patente=str(values["patente"]).strip().upper(),
+                km_actual=int(values["km_actual"]),
+                chofer_predeterminado_id=self._optional_int(
+                    values["chofer_predeterminado_id"]
+                ),
                 observaciones=str(values["observaciones"]).strip(),
             )
             self._refresh_object_table("Vehiculos")
@@ -2445,6 +3377,146 @@ class MainWindow(QMainWindow):
                 "vehiculo",
                 lambda: self.vehiculo_repository.delete(vehiculo_id),
                 lambda: self._refresh_object_table("Vehiculos"),
+            )
+
+    def _create_combustible_carga(self) -> None:
+        vehiculo_id = self._selected_object_id("Vehiculos")
+        if vehiculo_id is None:
+            return
+        vehiculo = self._find_by_id(self.vehiculo_repository.list_all("CAMION"), vehiculo_id)
+        if vehiculo is None:
+            QMessageBox.warning(
+                self,
+                "Seleccion requerida",
+                "La carga de combustible solo esta disponible para camiones.",
+            )
+            return
+
+        values = self._record_values(
+            f"Carga de combustible - {vehiculo.etiqueta}",
+            self._combustible_carga_fields(
+                {
+                    "km_actual_camion": vehiculo.km_actual,
+                }
+            ),
+        )
+        if values is None:
+            return
+
+        km_actual_camion = int(values["km_actual_camion"])
+        if km_actual_camion < vehiculo.km_actual:
+            QMessageBox.warning(
+                self,
+                "Km invalido",
+                (
+                    "La carga de combustible no puede bajar los km actuales "
+                    f"del camion ({vehiculo.km_actual}).\n\n"
+                    "Para corregir un kilometraje anterior, usa Editar vehiculo."
+                ),
+            )
+            return
+
+        def save() -> None:
+            self.combustible_repository.create(
+                vehiculo_id=vehiculo_id,
+                fecha_carga=str(values["fecha_carga"]),
+                litros_cargados=float(values["litros_cargados"]),
+                km_actual_camion=km_actual_camion,
+            )
+            self._refresh_object_table("Vehiculos")
+            self._refresh_table()
+            self._refresh_viaje_form_options()
+            self._refresh_combustible_table()
+            self._refresh_fuel_consumption_table()
+
+        self._run_data_action("Carga de combustible registrada.", save)
+
+    def _create_mantenimiento(self) -> None:
+        if self.selected_mantenimiento_vehiculo_id is None:
+            QMessageBox.warning(
+                self,
+                "Seleccion requerida",
+                "Selecciona un vehiculo y abre sus mantenimientos primero.",
+            )
+            return
+        values = self._record_values(
+            "Agregar mantenimiento",
+            self._mantenimiento_fields(),
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.mantenimiento_repository.create(
+                vehiculo_id=self.selected_mantenimiento_vehiculo_id or 0,
+                fecha_ultimo_mantenimiento=str(values["fecha_ultimo_mantenimiento"]),
+                fecha_proximo_mantenimiento=str(values["fecha_proximo_mantenimiento"]),
+                km_proximo_mantenimiento=int(values["km_proximo_mantenimiento"]),
+                regularidad_fecha_meses=int(values["regularidad_fecha_meses"]),
+                regularidad_km=int(values["regularidad_km"]),
+                descripcion=str(values["descripcion"]).strip(),
+                observaciones=str(values["observaciones"]).strip(),
+            )
+            self._refresh_mantenimientos_table()
+            self._refresh_historial_mantenimientos_table()
+
+        self._run_data_action("Mantenimiento agregado.", save)
+
+    def _edit_mantenimiento(self) -> None:
+        mantenimiento_id = self._selected_mantenimiento_id()
+        if mantenimiento_id is None or self.selected_mantenimiento_vehiculo_id is None:
+            return
+        mantenimiento = self._find_by_id(
+            self.mantenimiento_repository.list_all(
+                vehiculo_id=self.selected_mantenimiento_vehiculo_id
+            ),
+            mantenimiento_id,
+        )
+        if mantenimiento is None:
+            return
+        values = self._record_values(
+            "Editar mantenimiento",
+            self._mantenimiento_fields(
+                {
+                    "fecha_ultimo_mantenimiento": mantenimiento.fecha_ultimo_mantenimiento,
+                    "fecha_proximo_mantenimiento": mantenimiento.fecha_proximo_mantenimiento,
+                    "km_proximo_mantenimiento": mantenimiento.km_proximo_mantenimiento,
+                    "regularidad_fecha_meses": mantenimiento.regularidad_fecha_meses,
+                    "regularidad_km": mantenimiento.regularidad_km,
+                    "descripcion": mantenimiento.descripcion,
+                    "observaciones": mantenimiento.observaciones,
+                }
+            ),
+        )
+        if values is None:
+            return
+
+        def save() -> None:
+            self.mantenimiento_repository.update(
+                mantenimiento_id,
+                fecha_ultimo_mantenimiento=str(values["fecha_ultimo_mantenimiento"]),
+                fecha_proximo_mantenimiento=str(values["fecha_proximo_mantenimiento"]),
+                km_proximo_mantenimiento=int(values["km_proximo_mantenimiento"]),
+                regularidad_fecha_meses=int(values["regularidad_fecha_meses"]),
+                regularidad_km=int(values["regularidad_km"]),
+                descripcion=str(values["descripcion"]).strip(),
+                observaciones=str(values["observaciones"]).strip(),
+            )
+            self._refresh_mantenimientos_table()
+            self._refresh_historial_mantenimientos_table()
+
+        self._run_data_action("Mantenimiento actualizado.", save)
+
+    def _delete_mantenimiento(self) -> None:
+        mantenimiento_id = self._selected_mantenimiento_id()
+        if mantenimiento_id is not None:
+            self._soft_delete_object(
+                "mantenimiento",
+                lambda: self.mantenimiento_repository.delete(mantenimiento_id),
+                lambda: (
+                    self._refresh_mantenimientos_table(),
+                    self._refresh_historial_mantenimientos_table(),
+                ),
             )
 
     def _create_peaje_empresa(self) -> None:
@@ -2820,6 +3892,13 @@ class MainWindow(QMainWindow):
                 "type": "date",
                 "value": values.get("fecha_vencimiento_registro", ""),
             },
+            {
+                "key": "regularidad_registro_meses",
+                "label": "Duracion registro",
+                "type": "integer",
+                "value": values.get("regularidad_registro_meses", 12),
+                "step": 1,
+            },
         ]
 
     def _tipo_carga_fields(
@@ -2856,8 +3935,111 @@ class MainWindow(QMainWindow):
             },
             {"key": "patente", "label": "Patente", "value": values.get("patente", "")},
             {
+                "key": "km_actual",
+                "label": "Km actuales",
+                "type": "integer",
+                "value": values.get("km_actual", 0),
+            },
+            {
+                "key": "chofer_predeterminado_id",
+                "label": "Chofer predeterminado",
+                "type": "combo",
+                "value": values.get("chofer_predeterminado_id"),
+                "options": [("Sin chofer predeterminado", None)]
+                + [
+                    (f"{item.nombre_completo} - DNI {item.dni}", item.id)
+                    for item in self.chofer_repository.list_all()
+                ],
+                "required": False,
+                "visible_when": {
+                    "field": "tipo",
+                    "equals": "CAMION",
+                },
+            },
+            {
                 "key": "observaciones",
                 "label": "Observaciones",
+                "type": "multiline",
+                "value": values.get("observaciones", ""),
+                "required": False,
+            },
+        ]
+
+    def _combustible_carga_fields(
+        self,
+        values: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        values = values or {}
+        return [
+            {
+                "key": "fecha_carga",
+                "label": "Fecha de carga",
+                "type": "date",
+                "value": values.get(
+                    "fecha_carga",
+                    QDate.currentDate().toString("yyyy-MM-dd"),
+                ),
+            },
+            {
+                "key": "litros_cargados",
+                "label": "Lts cargados",
+                "type": "decimal",
+                "value": values.get("litros_cargados", 0),
+            },
+            {
+                "key": "km_actual_camion",
+                "label": "Km actual del camion",
+                "type": "integer",
+                "value": values.get("km_actual_camion", 0),
+            },
+        ]
+
+    def _mantenimiento_fields(
+        self,
+        values: dict[str, object] | None = None,
+    ) -> list[dict[str, object]]:
+        values = values or {}
+        return [
+            {
+                "key": "descripcion",
+                "label": "Descripcion",
+                "value": values.get("descripcion", ""),
+                "required": False,
+            },
+            {
+                "key": "fecha_ultimo_mantenimiento",
+                "label": "Ultimo mantenimiento",
+                "type": "date",
+                "value": values.get("fecha_ultimo_mantenimiento", ""),
+            },
+            {
+                "key": "fecha_proximo_mantenimiento",
+                "label": "Proximo mantenimiento",
+                "type": "date",
+                "value": values.get("fecha_proximo_mantenimiento", ""),
+            },
+            {
+                "key": "km_proximo_mantenimiento",
+                "label": "Km proximo mantenimiento",
+                "type": "integer",
+                "value": values.get("km_proximo_mantenimiento", 0),
+            },
+            {
+                "key": "regularidad_fecha_meses",
+                "label": "Regularidad fecha (meses)",
+                "type": "integer",
+                "value": values.get("regularidad_fecha_meses", 0),
+                "step": 1,
+            },
+            {
+                "key": "regularidad_km",
+                "label": "Regularidad km",
+                "type": "integer",
+                "value": values.get("regularidad_km", 0),
+            },
+            {
+                "key": "observaciones",
+                "label": "Obs",
                 "type": "multiline",
                 "value": values.get("observaciones", ""),
                 "required": False,
@@ -3008,16 +4190,6 @@ class MainWindow(QMainWindow):
                 "required": False,
             },
             {
-                "key": "chofer_id",
-                "label": "Chofer",
-                "type": "combo",
-                "value": viaje["chofer_id"],
-                "options": [
-                    (f"{item.nombre_completo} - DNI {item.dni}", item.id)
-                    for item in self.chofer_repository.list_all()
-                ],
-            },
-            {
                 "key": "tipo_carga",
                 "label": "T.Carga",
                 "type": "combo",
@@ -3035,6 +4207,16 @@ class MainWindow(QMainWindow):
                 "options": [
                     (item.etiqueta, item.id)
                     for item in self.vehiculo_repository.list_all("CAMION")
+                ],
+            },
+            {
+                "key": "chofer_id",
+                "label": "Chofer",
+                "type": "combo",
+                "value": viaje["chofer_id"],
+                "options": [
+                    (f"{item.nombre_completo} - DNI {item.dni}", item.id)
+                    for item in self.chofer_repository.list_all()
                 ],
             },
             {
@@ -3206,7 +4388,7 @@ class MainWindow(QMainWindow):
             if field_key in selected_fields
         ]
         self.app_settings["cliente_viaje_fields"] = settings
-        save_app_settings(self.settings_path, self.app_settings)
+        self._save_app_settings()
 
     def _apply_viaje_field_visibility(self) -> None:
         cliente_id = self._current_viaje_cliente_id()
@@ -3420,6 +4602,21 @@ class MainWindow(QMainWindow):
                     end_date,
                     client_search="ricco",
                 )
+        elif mode == "client":
+            start_date = self.print_from_date.date().toString("yyyy-MM-dd")
+            end_date = self.print_to_date.date().toString("yyyy-MM-dd")
+            client_label = self._selected_print_client_label()
+            if start_date > end_date or not client_label:
+                rows = []
+            else:
+                rows = [
+                    viaje
+                    for viaje in self.viaje_repository.period_report_rows(
+                        start_date,
+                        end_date,
+                    )
+                    if viaje.cliente == client_label
+                ]
         else:
             month = int(self.print_month_combo.currentData() or QDate.currentDate().month())
             rows = self.viaje_repository.monthly_report_rows(year, month)
@@ -3445,15 +4642,18 @@ class MainWindow(QMainWindow):
         is_monthly = mode == "monthly"
         is_annual = mode == "annual"
         is_ricco = mode == "ricco"
+        is_client = mode == "client"
 
         if self.print_month_card is not None:
             self.print_month_card.setVisible(is_monthly)
         if self.print_year_card is not None:
             self.print_year_card.setVisible(is_monthly or is_annual)
         if self.print_from_card is not None:
-            self.print_from_card.setVisible(is_ricco)
+            self.print_from_card.setVisible(is_ricco or is_client)
         if self.print_to_card is not None:
-            self.print_to_card.setVisible(is_ricco)
+            self.print_to_card.setVisible(is_ricco or is_client)
+        if self.print_client_card is not None:
+            self.print_client_card.setVisible(is_client)
 
     def _export_print_excel(self) -> None:
         if not self.print_rows:
@@ -3556,6 +4756,11 @@ class MainWindow(QMainWindow):
             return f"reporte-anual-{self._selected_print_period_key()}"
         if mode == "ricco":
             return f"cliente-ricco-{self._selected_print_period_key()}"
+        if mode == "client":
+            client_label = self._safe_print_filename_component(
+                self._selected_print_client_label()
+            )
+            return f"reporte-cliente-{client_label}-{self._selected_print_period_key()}"
         return f"reporte-mensual-{self._selected_print_period_key()}"
 
     def _selected_print_mode(self) -> str:
@@ -3569,6 +4774,8 @@ class MainWindow(QMainWindow):
             return "Reporte anual"
         if mode == "ricco":
             return "Reporte Cliente Ricco"
+        if mode == "client":
+            return "Reporte por cliente"
         return "Reporte mensual"
 
     def _selected_print_period_key(self) -> str:
@@ -3577,6 +4784,10 @@ class MainWindow(QMainWindow):
             year = int(self.print_year_combo.currentData() or QDate.currentDate().year())
             return str(year)
         if mode == "ricco":
+            start_date = self.print_from_date.date().toString("yyyy-MM-dd")
+            end_date = self.print_to_date.date().toString("yyyy-MM-dd")
+            return f"{start_date}_a_{end_date}"
+        if mode == "client":
             start_date = self.print_from_date.date().toString("yyyy-MM-dd")
             end_date = self.print_to_date.date().toString("yyyy-MM-dd")
             return f"{start_date}_a_{end_date}"
@@ -3593,9 +4804,28 @@ class MainWindow(QMainWindow):
             start_date = self.print_from_date.date().toString("yyyy-MM-dd")
             end_date = self.print_to_date.date().toString("yyyy-MM-dd")
             return f"Desde {start_date} hasta {end_date}"
+        if mode == "client":
+            start_date = self.print_from_date.date().toString("yyyy-MM-dd")
+            end_date = self.print_to_date.date().toString("yyyy-MM-dd")
+            client_label = self._selected_print_client_label()
+            return f"{client_label} - Desde {start_date} hasta {end_date}"
         month = int(self.print_month_combo.currentData() or QDate.currentDate().month())
         year = int(self.print_year_combo.currentData() or QDate.currentDate().year())
         return f"{MONTH_NAMES[month - 1]} {year}"
+
+    def _selected_print_client_label(self) -> str:
+        if self.print_client_combo is None:
+            return ""
+        value = self.print_client_combo.currentData()
+        return str(value or "")
+
+    def _safe_print_filename_component(self, value: str) -> str:
+        normalized = value.strip().lower().replace(" ", "-")
+        return "".join(
+            character
+            for character in normalized
+            if character.isalnum() or character in {"-", "_"}
+        ) or "cliente"
 
     def _print_row_values(self, viaje: ViajeResumen) -> list[str]:
         return [
@@ -3650,6 +4880,10 @@ class MainWindow(QMainWindow):
             self.new_button.setVisible(active_label == "Cargar viaje")
         if self.save_button is not None:
             self.save_button.setVisible(active_label == "Cargar viaje")
+        if self.vehiculos_actions_widget is not None:
+            self.vehiculos_actions_widget.setVisible(active_label == "Vehiculos")
+        if self.peajes_actions_widget is not None:
+            self.peajes_actions_widget.setVisible(active_label == "Peajes")
 
         for label, button in self.nav_buttons.items():
             object_name = "navButtonActive" if label == active_label else "navButton"
@@ -3732,6 +4966,22 @@ class MainWindow(QMainWindow):
 
         self._refresh_peaje_checklist()
         self._apply_viaje_field_visibility()
+        self._refresh_print_client_options()
+
+    def _refresh_print_client_options(self) -> None:
+        combo = self.print_client_combo
+        if combo is None:
+            return
+
+        selected_value = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        for item in self.cliente_repository.list_all():
+            combo.addItem(item.etiqueta, item.etiqueta)
+        selected_index = combo.findData(selected_value)
+        combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+        combo.blockSignals(False)
+        self._refresh_print_report()
 
     def _selected_peaje_empresa_filter(self) -> int | None:
         widget = self.form_widgets.get("peaje_empresa")
@@ -3882,7 +5132,8 @@ class StartupAlertsDialog(QDialog):
 
         _anchor_child_window(self)
         self.setWindowTitle("Alertas")
-        self.setMinimumWidth(520)
+        self.setMinimumSize(520, 240)
+        self.setSizeGripEnabled(True)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(14)
@@ -3946,21 +5197,29 @@ class RecordDialog(QDialog):
         fields: list[dict[str, object]],
         *,
         columns: int = 1,
+        dialog_key: str | None = None,
     ) -> None:
         super().__init__(parent)
         self.fields = fields
+        self.dialog_key = dialog_key or title
+        self.settings_owner = parent
         self.widgets: dict[str, QWidget] = {}
         self.row_labels: dict[str, QWidget] = {}
         self.check_groups: dict[str, list[tuple[QCheckBox, object]]] = {}
         self.peaje_selectors: dict[str, QListWidget] = {}
+        self._ready_to_show = False
 
         _anchor_child_window(self)
+        self.setUpdatesEnabled(False)
+        self.setWindowOpacity(0)
         self.setWindowTitle(title)
-        self.setMinimumWidth(780 if columns > 1 else 420)
+        self.setMinimumSize(780 if columns > 1 else 420, 260)
+        self.setSizeGripEnabled(True)
 
         layout = QVBoxLayout(self)
+        content = QWidget()
         forms: list[QFormLayout] = []
-        forms_layout = QHBoxLayout()
+        forms_layout = QHBoxLayout(content)
         forms_layout.setSpacing(18)
         for _column in range(max(1, columns)):
             form = QFormLayout()
@@ -3996,6 +5255,11 @@ class RecordDialog(QDialog):
                 widget.setDecimals(2)
                 widget.setSingleStep(10)
                 widget.setValue(float(value or 0))
+            elif field_type == "integer":
+                widget = QSpinBox()
+                widget.setRange(0, 999_999_999)
+                widget.setSingleStep(int(field.get("step", 1000)))
+                widget.setValue(int(value or 0))
             elif field_type == "combo":
                 widget = QComboBox()
                 for option_label, option_value in field.get("options", []):
@@ -4006,7 +5270,7 @@ class RecordDialog(QDialog):
                     widget.setCurrentIndex(index)
             elif field_type == "multiline":
                 widget = QTextEdit()
-                widget.setFixedHeight(84)
+                widget.setMinimumHeight(84)
                 widget.setPlainText(str(value or ""))
             elif field_type == "checks":
                 widget = QWidget()
@@ -4033,7 +5297,7 @@ class RecordDialog(QDialog):
                     combo.addItem(str(option_label), option_value)
 
                 peajes = QListWidget()
-                peajes.setFixedHeight(112)
+                peajes.setMinimumHeight(112)
                 all_peajes = list(field.get("peajes", []))
 
                 def checked_peaje_ids(peajes_widget: QListWidget = peajes) -> set[int]:
@@ -4118,9 +5382,48 @@ class RecordDialog(QDialog):
         )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        self.finished.connect(lambda _result: self._save_current_size())
 
-        layout.addLayout(forms_layout)
+        scroll = QScrollArea()
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, stretch=1)
         layout.addWidget(buttons)
+
+    def showEvent(self, event: object) -> None:
+        super().showEvent(event)
+        if self._ready_to_show:
+            return
+        self._ready_to_show = True
+        QTimer.singleShot(0, self._reveal_when_ready)
+
+    def _reveal_when_ready(self) -> None:
+        layout = self.layout()
+        if layout is not None:
+            layout.activate()
+        saved_size = self._saved_size()
+        if saved_size is not None:
+            self.resize(*saved_size)
+        else:
+            self.adjustSize()
+        self.setUpdatesEnabled(True)
+        self.setWindowOpacity(1)
+
+    def _saved_size(self) -> tuple[int, int] | None:
+        if hasattr(self.settings_owner, "_dialog_size"):
+            value = self.settings_owner._dialog_size(self.dialog_key)
+            if isinstance(value, tuple):
+                return value
+        return None
+
+    def _save_current_size(self) -> None:
+        if hasattr(self.settings_owner, "_save_dialog_size"):
+            self.settings_owner._save_dialog_size(
+                self.dialog_key,
+                self.width(),
+                self.height(),
+            )
 
     def is_field_visible(self, key: str) -> bool:
         widget = self.widgets.get(key)
@@ -4152,6 +5455,8 @@ class RecordDialog(QDialog):
                 values[key] = widget.date().toString("yyyy-MM-dd")
             elif isinstance(widget, QDoubleSpinBox):
                 values[key] = float(widget.value())
+            elif isinstance(widget, QSpinBox):
+                values[key] = int(widget.value())
             elif isinstance(widget, QComboBox):
                 values[key] = widget.currentData()
         return values
@@ -4229,12 +5534,29 @@ def _month_label(date: QDate) -> str:
     return f"{MONTH_NAMES[date.month() - 1]} {date.year()}"
 
 
+def _build_app_styles(font_sizes: dict[str, int]) -> str:
+    replacements = {
+        "__FONT_BASE__": str(font_sizes["base"]),
+        "__FONT_BRAND__": str(font_sizes["brand"]),
+        "__FONT_SMALL__": str(font_sizes["small"]),
+        "__FONT_PAGE_TITLE__": str(font_sizes["page_title"]),
+        "__FONT_SECTION_TITLE__": str(font_sizes["section_title"]),
+        "__FONT_BUTTON__": str(font_sizes["button"]),
+        "__FONT_METRIC__": str(font_sizes["metric"]),
+        "__FONT_TABLE_HEADER__": str(font_sizes["table_header"]),
+    }
+    stylesheet = APP_STYLES
+    for placeholder, value in replacements.items():
+        stylesheet = stylesheet.replace(placeholder, value)
+    return stylesheet
+
+
 APP_STYLES = """
 QWidget {
     background: #f5f7f8;
     color: #182026;
     font-family: "Segoe UI", "San Francisco", Arial, sans-serif;
-    font-size: 14px;
+    font-size: __FONT_BASE__px;
 }
 
 QMenuBar {
@@ -4248,6 +5570,7 @@ QPushButton {
     border-radius: 8px;
     background: #ffffff;
     padding: 0 12px;
+    font-size: __FONT_BUTTON__px;
 }
 
 QPushButton:hover {
@@ -4265,6 +5588,7 @@ QLineEdit {
 QComboBox,
 QDateEdit,
 QDoubleSpinBox,
+QSpinBox,
 QTextEdit,
 QListWidget {
     border: 1px solid #d9e0e5;
@@ -4275,7 +5599,8 @@ QListWidget {
 
 QComboBox,
 QDateEdit,
-QDoubleSpinBox {
+QDoubleSpinBox,
+QSpinBox {
     min-height: 34px;
 }
 
@@ -4295,14 +5620,14 @@ QFrame#sidebar {
 QLabel#brand {
     background: transparent;
     color: #ffffff;
-    font-size: 15px;
+    font-size: __FONT_BRAND__px;
     font-weight: 700;
 }
 
 QLabel#sidebarSubtitle {
     background: transparent;
     color: rgba(255, 255, 255, 0.68);
-    font-size: 12px;
+    font-size: __FONT_SMALL__px;
 }
 
 QPushButton#navButton,
@@ -4354,25 +5679,25 @@ QFrame#panelHeader {
 
 QLabel#pageTitle {
     background: transparent;
-    font-size: 20px;
+    font-size: __FONT_PAGE_TITLE__px;
     font-weight: 700;
 }
 
 QLabel#sectionTitle {
     background: transparent;
-    font-size: 16px;
+    font-size: __FONT_SECTION_TITLE__px;
     font-weight: 700;
 }
 
 QLabel#muted {
     background: transparent;
     color: #63707a;
-    font-size: 12px;
+    font-size: __FONT_SMALL__px;
 }
 
 QLabel#metricValue {
     background: transparent;
-    font-size: 24px;
+    font-size: __FONT_METRIC__px;
     font-weight: 700;
 }
 
@@ -4404,7 +5729,7 @@ QHeaderView::section {
     border: none;
     border-bottom: 1px solid #d9e0e5;
     padding: 10px;
-    font-size: 12px;
+    font-size: __FONT_TABLE_HEADER__px;
     font-weight: 700;
 }
 """

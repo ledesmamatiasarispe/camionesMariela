@@ -16,6 +16,10 @@ from gestion_camiones.data.models import (
     Peaje,
     TipoCarga,
     Vehiculo,
+    VehiculoCombustibleCarga,
+    VehiculoCombustibleConsumo,
+    VehiculoMantenimiento,
+    VehiculoMantenimientoHistorial,
     ViajeCreate,
     ViajeResumen,
 )
@@ -1012,6 +1016,7 @@ class ChoferRepository:
                 apellido,
                 numero_telefono,
                 fecha_vencimiento_registro,
+                COALESCE(regularidad_registro_meses, 12) AS regularidad_registro_meses,
                 activo
             FROM choferes
         """
@@ -1034,6 +1039,7 @@ class ChoferRepository:
                 apellido=row["apellido"],
                 numero_telefono=row["numero_telefono"],
                 fecha_vencimiento_registro=row["fecha_vencimiento_registro"],
+                regularidad_registro_meses=int(row["regularidad_registro_meses"]),
                 activo=bool(row["activo"]),
             )
             for row in rows
@@ -1047,6 +1053,7 @@ class ChoferRepository:
         apellido: str,
         numero_telefono: str,
         fecha_vencimiento_registro: str,
+        regularidad_registro_meses: int = 12,
     ) -> int:
         with closing(self._connect()) as connection:
             cursor = connection.execute(
@@ -1056,8 +1063,9 @@ class ChoferRepository:
                     nombre,
                     apellido,
                     numero_telefono,
-                    fecha_vencimiento_registro
-                ) VALUES (?, ?, ?, ?, ?)
+                    fecha_vencimiento_registro,
+                    regularidad_registro_meses
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     dni,
@@ -1065,6 +1073,7 @@ class ChoferRepository:
                     apellido,
                     numero_telefono,
                     fecha_vencimiento_registro,
+                    regularidad_registro_meses,
                 ),
             )
             connection.commit()
@@ -1079,6 +1088,7 @@ class ChoferRepository:
         apellido: str,
         numero_telefono: str,
         fecha_vencimiento_registro: str,
+        regularidad_registro_meses: int,
     ) -> None:
         with closing(self._connect()) as connection:
             connection.execute(
@@ -1089,7 +1099,8 @@ class ChoferRepository:
                     nombre = ?,
                     apellido = ?,
                     numero_telefono = ?,
-                    fecha_vencimiento_registro = ?
+                    fecha_vencimiento_registro = ?,
+                    regularidad_registro_meses = ?
                 WHERE id = ?
                 """,
                 (
@@ -1098,6 +1109,7 @@ class ChoferRepository:
                     apellido,
                     numero_telefono,
                     fecha_vencimiento_registro,
+                    regularidad_registro_meses,
                     chofer_id,
                 ),
             )
@@ -1136,6 +1148,7 @@ class ChoferRepository:
 
 class AlertRepository:
     DRIVER_LICENSE_SOURCE = "chofer_registro"
+    VEHICLE_MAINTENANCE_SOURCE = "vehiculo_mantenimiento"
 
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
@@ -1144,7 +1157,7 @@ class AlertRepository:
         current_date = today or date.today()
         threshold_date = current_date + timedelta(days=60)
         with closing(self._connect()) as connection:
-            rows = connection.execute(
+            driver_rows = connection.execute(
                 """
                 SELECT
                     choferes.id,
@@ -1169,9 +1182,74 @@ class AlertRepository:
                 """,
                 (threshold_date.isoformat(), current_date.isoformat()),
             ).fetchall()
+            maintenance_rows = connection.execute(
+                """
+                SELECT
+                    vehiculo_mantenimientos.id,
+                    vehiculo_mantenimientos.vehiculo_id,
+                    vehiculo_mantenimientos.fecha_proximo_mantenimiento,
+                    vehiculos.nombre_identificatorio,
+                    vehiculos.patente,
+                    alertas_app.avisar_nuevamente_desde
+                FROM vehiculo_mantenimientos
+                JOIN vehiculos ON vehiculos.id = vehiculo_mantenimientos.vehiculo_id
+                LEFT JOIN alertas_app
+                    ON alertas_app.clave =
+                        'vehiculo_mantenimiento:' || vehiculo_mantenimientos.id || ':' ||
+                        vehiculo_mantenimientos.fecha_proximo_mantenimiento
+                WHERE vehiculo_mantenimientos.activo = 1
+                  AND vehiculos.activo = 1
+                  AND COALESCE(vehiculo_mantenimientos.fecha_proximo_mantenimiento, '') != ''
+                  AND vehiculo_mantenimientos.fecha_proximo_mantenimiento <= ?
+                  AND (
+                      alertas_app.avisar_nuevamente_desde IS NULL
+                      OR alertas_app.avisar_nuevamente_desde = ''
+                      OR alertas_app.avisar_nuevamente_desde <= ?
+                  )
+                ORDER BY
+                    vehiculo_mantenimientos.fecha_proximo_mantenimiento,
+                    vehiculos.nombre_identificatorio,
+                    vehiculos.patente
+                """,
+                (threshold_date.isoformat(), current_date.isoformat()),
+            ).fetchall()
+            maintenance_km_rows = connection.execute(
+                """
+                SELECT
+                    vehiculo_mantenimientos.id,
+                    vehiculo_mantenimientos.vehiculo_id,
+                    vehiculo_mantenimientos.km_proximo_mantenimiento,
+                    vehiculos.km_actual,
+                    vehiculos.nombre_identificatorio,
+                    vehiculos.patente,
+                    alertas_app.avisar_nuevamente_desde
+                FROM vehiculo_mantenimientos
+                JOIN vehiculos ON vehiculos.id = vehiculo_mantenimientos.vehiculo_id
+                LEFT JOIN alertas_app
+                    ON alertas_app.clave =
+                        'vehiculo_mantenimiento_km:' || vehiculo_mantenimientos.id || ':' ||
+                        vehiculo_mantenimientos.km_proximo_mantenimiento
+                WHERE vehiculo_mantenimientos.activo = 1
+                  AND vehiculos.activo = 1
+                  AND vehiculos.tipo = 'CAMION'
+                  AND COALESCE(vehiculo_mantenimientos.km_proximo_mantenimiento, 0) > 0
+                  AND COALESCE(vehiculos.km_actual, 0) >=
+                      vehiculo_mantenimientos.km_proximo_mantenimiento - 100
+                  AND (
+                      alertas_app.avisar_nuevamente_desde IS NULL
+                      OR alertas_app.avisar_nuevamente_desde = ''
+                      OR alertas_app.avisar_nuevamente_desde <= ?
+                  )
+                ORDER BY
+                    vehiculo_mantenimientos.km_proximo_mantenimiento,
+                    vehiculos.nombre_identificatorio,
+                    vehiculos.patente
+                """,
+                (current_date.isoformat(),),
+            ).fetchall()
 
         alerts: list[AppAlert] = []
-        for row in rows:
+        for row in driver_rows:
             due_date = str(row["fecha_vencimiento_registro"])
             try:
                 due = date.fromisoformat(due_date)
@@ -1195,6 +1273,54 @@ class AlertRepository:
                     ),
                     entity_id=int(row["id"]),
                     due_date=due_date,
+                )
+            )
+        for row in maintenance_rows:
+            due_date = str(row["fecha_proximo_mantenimiento"])
+            try:
+                due = date.fromisoformat(due_date)
+            except ValueError:
+                continue
+            vehiculo = f"{row['nombre_identificatorio']} - {row['patente']}".strip()
+            if due < current_date:
+                timing = f"vencio el {due_date}"
+            else:
+                days_left = (due - current_date).days
+                timing = f"vence el {due_date} ({days_left} dias)"
+            alerts.append(
+                AppAlert(
+                    key=self.vehicle_maintenance_alert_key(int(row["id"]), due_date),
+                    source=self.VEHICLE_MAINTENANCE_SOURCE,
+                    title="Mantenimiento de vehiculo por vencer",
+                    message=(
+                        f"El mantenimiento de {vehiculo} {timing}.\n\n"
+                        "Acepta para volver a recordar en una semana, o valida "
+                        "cargando la nueva fecha de proximo mantenimiento."
+                    ),
+                    entity_id=int(row["id"]),
+                    due_date=due_date,
+                )
+            )
+        for row in maintenance_km_rows:
+            current_km = int(row["km_actual"])
+            due_km = int(row["km_proximo_mantenimiento"])
+            vehiculo = f"{row['nombre_identificatorio']} - {row['patente']}".strip()
+            if current_km >= due_km:
+                timing = f"llego a {current_km} km sobre {due_km} km programados"
+            else:
+                timing = f"esta a {due_km - current_km} km de {due_km} km"
+            alerts.append(
+                AppAlert(
+                    key=self.vehicle_maintenance_km_alert_key(int(row["id"]), due_km),
+                    source=self.VEHICLE_MAINTENANCE_SOURCE,
+                    title="Mantenimiento de vehiculo por kilometraje",
+                    message=(
+                        f"El mantenimiento de {vehiculo} {timing}.\n\n"
+                        "Acepta para volver a recordar en una semana, o valida "
+                        "cargando la nueva fecha y kilometraje del proximo mantenimiento."
+                    ),
+                    entity_id=int(row["id"]),
+                    due_date=current_date.isoformat(),
                 )
             )
         return alerts
@@ -1225,6 +1351,12 @@ class AlertRepository:
     def driver_license_alert_key(self, chofer_id: int, due_date: str) -> str:
         return f"{self.DRIVER_LICENSE_SOURCE}:{chofer_id}:{due_date}"
 
+    def vehicle_maintenance_alert_key(self, mantenimiento_id: int, due_date: str) -> str:
+        return f"{self.VEHICLE_MAINTENANCE_SOURCE}:{mantenimiento_id}:{due_date}"
+
+    def vehicle_maintenance_km_alert_key(self, mantenimiento_id: int, due_km: int) -> str:
+        return f"{self.VEHICLE_MAINTENANCE_SOURCE}_km:{mantenimiento_id}:{due_km}"
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
@@ -1243,23 +1375,30 @@ class VehiculoRepository:
     ) -> list[Vehiculo]:
         query = """
             SELECT
-                id,
-                tipo,
-                nombre_identificatorio,
-                patente,
-                COALESCE(observaciones, '') AS observaciones,
-                activo
+                vehiculos.id,
+                vehiculos.tipo,
+                vehiculos.nombre_identificatorio,
+                vehiculos.patente,
+                COALESCE(vehiculos.km_actual, 0) AS km_actual,
+                vehiculos.chofer_predeterminado_id,
+                COALESCE(
+                    trim(choferes.nombre || ' ' || choferes.apellido),
+                    ''
+                ) AS chofer_predeterminado_nombre,
+                COALESCE(vehiculos.observaciones, '') AS observaciones,
+                vehiculos.activo
             FROM vehiculos
+            LEFT JOIN choferes ON choferes.id = vehiculos.chofer_predeterminado_id
         """
         clauses = []
         params: list[str | int] = []
 
         if tipo is not None:
-            clauses.append("tipo = ?")
+            clauses.append("vehiculos.tipo = ?")
             params.append(tipo)
 
         if not include_inactive:
-            clauses.append("activo = ?")
+            clauses.append("vehiculos.activo = ?")
             params.append(1)
 
         if clauses:
@@ -1276,6 +1415,9 @@ class VehiculoRepository:
                 tipo=row["tipo"],
                 nombre_identificatorio=row["nombre_identificatorio"],
                 patente=row["patente"],
+                km_actual=int(row["km_actual"]),
+                chofer_predeterminado_id=row["chofer_predeterminado_id"],
+                chofer_predeterminado_nombre=row["chofer_predeterminado_nombre"],
                 observaciones=row["observaciones"],
                 activo=bool(row["activo"]),
             )
@@ -1289,6 +1431,8 @@ class VehiculoRepository:
         nombre_identificatorio: str,
         patente: str,
         observaciones: str,
+        km_actual: int = 0,
+        chofer_predeterminado_id: int | None = None,
     ) -> int:
         with closing(self._connect()) as connection:
             cursor = connection.execute(
@@ -1297,10 +1441,19 @@ class VehiculoRepository:
                     tipo,
                     nombre_identificatorio,
                     patente,
+                    km_actual,
+                    chofer_predeterminado_id,
                     observaciones
-                ) VALUES (?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (tipo, nombre_identificatorio, patente, observaciones),
+                (
+                    tipo,
+                    nombre_identificatorio,
+                    patente,
+                    km_actual,
+                    chofer_predeterminado_id if tipo == "CAMION" else None,
+                    observaciones,
+                ),
             )
             connection.commit()
             return int(cursor.lastrowid)
@@ -1312,6 +1465,8 @@ class VehiculoRepository:
         tipo: str,
         nombre_identificatorio: str,
         patente: str,
+        km_actual: int,
+        chofer_predeterminado_id: int | None,
         observaciones: str,
     ) -> None:
         with closing(self._connect()) as connection:
@@ -1322,6 +1477,8 @@ class VehiculoRepository:
                     tipo = ?,
                     nombre_identificatorio = ?,
                     patente = ?,
+                    km_actual = ?,
+                    chofer_predeterminado_id = ?,
                     observaciones = ?
                 WHERE id = ?
                 """,
@@ -1329,6 +1486,8 @@ class VehiculoRepository:
                     tipo,
                     nombre_identificatorio,
                     patente,
+                    km_actual,
+                    chofer_predeterminado_id if tipo == "CAMION" else None,
                     observaciones,
                     vehiculo_id,
                 ),
@@ -1340,6 +1499,453 @@ class VehiculoRepository:
             connection.execute(
                 "UPDATE vehiculos SET activo = 0 WHERE id = ?",
                 (vehiculo_id,),
+            )
+            connection.commit()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+
+class VehiculoCombustibleRepository:
+    def __init__(self, database_path: Path) -> None:
+        self.database_path = database_path
+
+    def list_all(
+        self,
+        vehiculo_id: int | None = None,
+    ) -> list[VehiculoCombustibleCarga]:
+        query = """
+            SELECT
+                vehiculo_combustible_cargas.id,
+                vehiculo_combustible_cargas.vehiculo_id,
+                vehiculos.nombre_identificatorio || ' - ' || vehiculos.patente
+                    AS vehiculo_etiqueta,
+                vehiculo_combustible_cargas.fecha_carga,
+                vehiculo_combustible_cargas.litros_cargados,
+                vehiculo_combustible_cargas.km_actual_camion,
+                vehiculo_combustible_cargas.creado_en
+            FROM vehiculo_combustible_cargas
+            JOIN vehiculos ON vehiculos.id = vehiculo_combustible_cargas.vehiculo_id
+        """
+        params: tuple[int, ...] = ()
+        if vehiculo_id is not None:
+            query += " WHERE vehiculo_combustible_cargas.vehiculo_id = ?"
+            params = (vehiculo_id,)
+        query += """
+            ORDER BY
+                vehiculo_combustible_cargas.fecha_carga DESC,
+                vehiculo_combustible_cargas.id DESC
+        """
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [
+            VehiculoCombustibleCarga(
+                id=row["id"],
+                vehiculo_id=row["vehiculo_id"],
+                vehiculo_etiqueta=row["vehiculo_etiqueta"],
+                fecha_carga=row["fecha_carga"],
+                litros_cargados=float(row["litros_cargados"]),
+                km_actual_camion=int(row["km_actual_camion"]),
+                creado_en=row["creado_en"],
+            )
+            for row in rows
+        ]
+
+    def create(
+        self,
+        *,
+        vehiculo_id: int,
+        fecha_carga: str,
+        litros_cargados: float,
+        km_actual_camion: int,
+    ) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO vehiculo_combustible_cargas (
+                    vehiculo_id,
+                    fecha_carga,
+                    litros_cargados,
+                    km_actual_camion
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    vehiculo_id,
+                    fecha_carga,
+                    litros_cargados,
+                    km_actual_camion,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE vehiculos
+                SET km_actual = ?
+                WHERE id = ? AND tipo = 'CAMION'
+                """,
+                (km_actual_camion, vehiculo_id),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def consumption_summary(self) -> list[VehiculoCombustibleConsumo]:
+        query = """
+            SELECT
+                vehiculos.id AS vehiculo_id,
+                vehiculos.nombre_identificatorio || ' - ' || vehiculos.patente
+                    AS vehiculo_etiqueta,
+                vehiculo_combustible_cargas.fecha_carga,
+                vehiculo_combustible_cargas.litros_cargados,
+                vehiculo_combustible_cargas.km_actual_camion,
+                vehiculo_combustible_cargas.id AS carga_id
+            FROM vehiculos
+            LEFT JOIN vehiculo_combustible_cargas
+                ON vehiculo_combustible_cargas.vehiculo_id = vehiculos.id
+            WHERE vehiculos.activo = 1
+              AND vehiculos.tipo = 'CAMION'
+            ORDER BY
+                vehiculos.nombre_identificatorio,
+                vehiculos.patente,
+                vehiculo_combustible_cargas.fecha_carga,
+                vehiculo_combustible_cargas.id
+        """
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query).fetchall()
+
+        grouped: dict[int, dict[str, object]] = {}
+        for row in rows:
+            vehiculo_id = int(row["vehiculo_id"])
+            group = grouped.setdefault(
+                vehiculo_id,
+                {
+                    "vehiculo_etiqueta": str(row["vehiculo_etiqueta"]),
+                    "cargas": [],
+                },
+            )
+            if row["carga_id"] is not None:
+                group["cargas"].append(
+                    (
+                        int(row["km_actual_camion"]),
+                        float(row["litros_cargados"]),
+                    )
+                )
+
+        summaries: list[VehiculoCombustibleConsumo] = []
+        for vehiculo_id, group in grouped.items():
+            cargas = list(group["cargas"])
+            km_recorridos = 0
+            litros_computados = 0.0
+            previous_km: int | None = None
+            for current_km, litros in cargas:
+                if previous_km is not None:
+                    delta_km = current_km - previous_km
+                    if delta_km > 0:
+                        km_recorridos += delta_km
+                        litros_computados += litros
+                previous_km = current_km
+            consumo = (
+                litros_computados / km_recorridos * 100
+                if km_recorridos > 0
+                else None
+            )
+            summaries.append(
+                VehiculoCombustibleConsumo(
+                    vehiculo_id=vehiculo_id,
+                    vehiculo_etiqueta=str(group["vehiculo_etiqueta"]),
+                    cargas=len(cargas),
+                    km_recorridos=km_recorridos,
+                    litros_computados=litros_computados,
+                    consumo_litros_100km=consumo,
+                )
+            )
+        return summaries
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        return connection
+
+
+class VehiculoMantenimientoRepository:
+    def __init__(self, database_path: Path) -> None:
+        self.database_path = database_path
+
+    def list_all(
+        self,
+        vehiculo_id: int | None = None,
+        include_inactive: bool = False,
+    ) -> list[VehiculoMantenimiento]:
+        query = """
+            SELECT
+                vehiculo_mantenimientos.id,
+                vehiculo_mantenimientos.vehiculo_id,
+                vehiculos.nombre_identificatorio || ' - ' || vehiculos.patente AS vehiculo_etiqueta,
+                vehiculo_mantenimientos.fecha_ultimo_mantenimiento,
+                vehiculo_mantenimientos.fecha_proximo_mantenimiento,
+                COALESCE(vehiculo_mantenimientos.km_proximo_mantenimiento, 0)
+                    AS km_proximo_mantenimiento,
+                COALESCE(vehiculo_mantenimientos.regularidad_fecha_meses, 0)
+                    AS regularidad_fecha_meses,
+                COALESCE(vehiculo_mantenimientos.regularidad_km, 0)
+                    AS regularidad_km,
+                COALESCE(vehiculo_mantenimientos.descripcion, '') AS descripcion,
+                COALESCE(vehiculo_mantenimientos.observaciones, '') AS observaciones,
+                vehiculo_mantenimientos.activo
+            FROM vehiculo_mantenimientos
+            JOIN vehiculos ON vehiculos.id = vehiculo_mantenimientos.vehiculo_id
+        """
+        clauses = []
+        params: list[int] = []
+        if vehiculo_id is not None:
+            clauses.append("vehiculo_mantenimientos.vehiculo_id = ?")
+            params.append(vehiculo_id)
+        if not include_inactive:
+            clauses.append("vehiculo_mantenimientos.activo = ?")
+            params.append(1)
+            clauses.append("vehiculos.activo = ?")
+            params.append(1)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY vehiculo_mantenimientos.fecha_proximo_mantenimiento"
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, tuple(params)).fetchall()
+        return [
+            VehiculoMantenimiento(
+                id=row["id"],
+                vehiculo_id=row["vehiculo_id"],
+                vehiculo_etiqueta=row["vehiculo_etiqueta"],
+                fecha_ultimo_mantenimiento=row["fecha_ultimo_mantenimiento"],
+                fecha_proximo_mantenimiento=row["fecha_proximo_mantenimiento"],
+                km_proximo_mantenimiento=int(row["km_proximo_mantenimiento"]),
+                regularidad_fecha_meses=int(row["regularidad_fecha_meses"]),
+                regularidad_km=int(row["regularidad_km"]),
+                descripcion=row["descripcion"],
+                observaciones=row["observaciones"],
+                activo=bool(row["activo"]),
+            )
+            for row in rows
+        ]
+
+    def list_history(
+        self,
+        vehiculo_id: int | None = None,
+    ) -> list[VehiculoMantenimientoHistorial]:
+        query = """
+            SELECT
+                vehiculo_mantenimiento_historial.id,
+                vehiculo_mantenimiento_historial.mantenimiento_id,
+                vehiculo_mantenimiento_historial.vehiculo_id,
+                vehiculos.nombre_identificatorio || ' - ' || vehiculos.patente AS vehiculo_etiqueta,
+                vehiculo_mantenimiento_historial.fecha_ultimo_mantenimiento,
+                vehiculo_mantenimiento_historial.fecha_proximo_mantenimiento,
+                COALESCE(vehiculo_mantenimiento_historial.km_proximo_mantenimiento, 0)
+                    AS km_proximo_mantenimiento,
+                vehiculo_mantenimiento_historial.fuera_de_tiempo
+            FROM vehiculo_mantenimiento_historial
+            JOIN vehiculos ON vehiculos.id = vehiculo_mantenimiento_historial.vehiculo_id
+        """
+        params: tuple[int, ...] = ()
+        if vehiculo_id is not None:
+            query += " WHERE vehiculo_mantenimiento_historial.vehiculo_id = ?"
+            params = (vehiculo_id,)
+        query += """
+            ORDER BY
+                vehiculo_mantenimiento_historial.fecha_ultimo_mantenimiento DESC,
+                vehiculo_mantenimiento_historial.id DESC
+        """
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [
+            VehiculoMantenimientoHistorial(
+                id=row["id"],
+                mantenimiento_id=row["mantenimiento_id"],
+                vehiculo_id=row["vehiculo_id"],
+                vehiculo_etiqueta=row["vehiculo_etiqueta"],
+                fecha_ultimo_mantenimiento=row["fecha_ultimo_mantenimiento"],
+                fecha_proximo_mantenimiento=row["fecha_proximo_mantenimiento"],
+                km_proximo_mantenimiento=int(row["km_proximo_mantenimiento"]),
+                fuera_de_tiempo=bool(row["fuera_de_tiempo"]),
+            )
+            for row in rows
+        ]
+
+    def create(
+        self,
+        *,
+        vehiculo_id: int,
+        fecha_ultimo_mantenimiento: str,
+        fecha_proximo_mantenimiento: str,
+        km_proximo_mantenimiento: int = 0,
+        regularidad_fecha_meses: int = 0,
+        regularidad_km: int = 0,
+        descripcion: str = "",
+        observaciones: str = "",
+    ) -> int:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO vehiculo_mantenimientos (
+                    vehiculo_id,
+                    fecha_ultimo_mantenimiento,
+                    fecha_proximo_mantenimiento,
+                    km_proximo_mantenimiento,
+                    regularidad_fecha_meses,
+                    regularidad_km,
+                    descripcion,
+                    observaciones
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    vehiculo_id,
+                    fecha_ultimo_mantenimiento,
+                    fecha_proximo_mantenimiento,
+                    km_proximo_mantenimiento,
+                    regularidad_fecha_meses,
+                    regularidad_km,
+                    descripcion,
+                    observaciones,
+                ),
+            )
+            connection.commit()
+            return int(cursor.lastrowid)
+
+    def update(
+        self,
+        mantenimiento_id: int,
+        *,
+        fecha_ultimo_mantenimiento: str,
+        fecha_proximo_mantenimiento: str,
+        km_proximo_mantenimiento: int,
+        regularidad_fecha_meses: int | None = None,
+        regularidad_km: int | None = None,
+        descripcion: str | None = None,
+        observaciones: str | None = None,
+    ) -> None:
+        with closing(self._connect()) as connection:
+            current = connection.execute(
+                """
+                SELECT
+                    vehiculo_mantenimientos.vehiculo_id,
+                    vehiculo_mantenimientos.fecha_proximo_mantenimiento,
+                    COALESCE(vehiculo_mantenimientos.km_proximo_mantenimiento, 0)
+                        AS km_proximo_mantenimiento,
+                    COALESCE(vehiculo_mantenimientos.regularidad_fecha_meses, 0)
+                        AS regularidad_fecha_meses,
+                    COALESCE(vehiculo_mantenimientos.regularidad_km, 0)
+                        AS regularidad_km,
+                    COALESCE(vehiculo_mantenimientos.descripcion, '') AS descripcion,
+                    COALESCE(vehiculo_mantenimientos.observaciones, '') AS observaciones,
+                    COALESCE(vehiculos.km_actual, 0) AS km_actual
+                FROM vehiculo_mantenimientos
+                JOIN vehiculos ON vehiculos.id = vehiculo_mantenimientos.vehiculo_id
+                WHERE vehiculo_mantenimientos.id = ?
+                """,
+                (mantenimiento_id,),
+            ).fetchone()
+            if current is None:
+                return
+            previous_due_date = str(current["fecha_proximo_mantenimiento"])
+            previous_due_km = int(current["km_proximo_mantenimiento"])
+            if regularidad_fecha_meses is None:
+                regularidad_fecha_meses = int(current["regularidad_fecha_meses"])
+            if regularidad_km is None:
+                regularidad_km = int(current["regularidad_km"])
+            if descripcion is None:
+                descripcion = str(current["descripcion"])
+            if observaciones is None:
+                observaciones = str(current["observaciones"])
+            current_km = int(current["km_actual"])
+            vehiculo_id = int(current["vehiculo_id"])
+            if (
+                previous_due_date != fecha_proximo_mantenimiento
+                or previous_due_km != km_proximo_mantenimiento
+            ):
+                connection.execute(
+                    """
+                    INSERT INTO vehiculo_mantenimiento_historial (
+                        mantenimiento_id,
+                        vehiculo_id,
+                        fecha_ultimo_mantenimiento,
+                        fecha_proximo_mantenimiento,
+                        km_proximo_mantenimiento,
+                        fuera_de_tiempo
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        mantenimiento_id,
+                        vehiculo_id,
+                        fecha_ultimo_mantenimiento,
+                        previous_due_date,
+                        previous_due_km,
+                        int(
+                            fecha_ultimo_mantenimiento > previous_due_date
+                            or (previous_due_km > 0 and current_km > previous_due_km)
+                        ),
+                    ),
+                )
+            connection.execute(
+                """
+                UPDATE vehiculo_mantenimientos
+                SET
+                    fecha_ultimo_mantenimiento = ?,
+                    fecha_proximo_mantenimiento = ?,
+                    km_proximo_mantenimiento = ?,
+                    regularidad_fecha_meses = ?,
+                    regularidad_km = ?,
+                    descripcion = ?,
+                    observaciones = ?,
+                    actualizado_en = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    fecha_ultimo_mantenimiento,
+                    fecha_proximo_mantenimiento,
+                    km_proximo_mantenimiento,
+                    regularidad_fecha_meses,
+                    regularidad_km,
+                    descripcion,
+                    observaciones,
+                    mantenimiento_id,
+                ),
+            )
+            connection.commit()
+
+    def validate_due_date(
+        self,
+        mantenimiento_id: int,
+        new_due_date: str,
+        new_due_km: int,
+    ) -> None:
+        today = date.today().isoformat()
+        current = self.get(mantenimiento_id)
+        self.update(
+            mantenimiento_id,
+            fecha_ultimo_mantenimiento=today,
+            fecha_proximo_mantenimiento=new_due_date,
+            km_proximo_mantenimiento=new_due_km,
+            regularidad_fecha_meses=(
+                current.regularidad_fecha_meses if current is not None else 0
+            ),
+            regularidad_km=current.regularidad_km if current is not None else 0,
+        )
+
+    def get(self, mantenimiento_id: int) -> VehiculoMantenimiento | None:
+        for item in self.list_all(include_inactive=True):
+            if item.id == mantenimiento_id:
+                return item
+        return None
+
+    def delete(self, mantenimiento_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE vehiculo_mantenimientos SET activo = 0 WHERE id = ?",
+                (mantenimiento_id,),
             )
             connection.commit()
 

@@ -58,6 +58,7 @@ class Chofer:
     apellido: str
     numero_telefono: str
     fecha_vencimiento_registro: str
+    regularidad_registro_meses: int
     activo: bool
 
     @property
@@ -81,12 +82,63 @@ class Vehiculo:
     tipo: str
     nombre_identificatorio: str
     patente: str
+    km_actual: int
+    chofer_predeterminado_id: int | None
+    chofer_predeterminado_nombre: str
     observaciones: str
     activo: bool
 
     @property
     def etiqueta(self) -> str:
         return f"{self.nombre_identificatorio} - {self.patente}".strip()
+
+
+@dataclass(frozen=True)
+class VehiculoMantenimiento:
+    id: int
+    vehiculo_id: int
+    vehiculo_etiqueta: str
+    fecha_ultimo_mantenimiento: str
+    fecha_proximo_mantenimiento: str
+    km_proximo_mantenimiento: int
+    regularidad_fecha_meses: int
+    regularidad_km: int
+    descripcion: str
+    observaciones: str
+    activo: bool
+
+
+@dataclass(frozen=True)
+class VehiculoMantenimientoHistorial:
+    id: int
+    mantenimiento_id: int
+    vehiculo_id: int
+    vehiculo_etiqueta: str
+    fecha_ultimo_mantenimiento: str
+    fecha_proximo_mantenimiento: str
+    km_proximo_mantenimiento: int
+    fuera_de_tiempo: bool
+
+
+@dataclass(frozen=True)
+class VehiculoCombustibleCarga:
+    id: int
+    vehiculo_id: int
+    vehiculo_etiqueta: str
+    fecha_carga: str
+    litros_cargados: float
+    km_actual_camion: int
+    creado_en: str
+
+
+@dataclass(frozen=True)
+class VehiculoCombustibleConsumo:
+    vehiculo_id: int
+    vehiculo_etiqueta: str
+    cargas: int
+    km_recorridos: int
+    litros_computados: float
+    consumo_litros_100km: float | None
 
 
 @dataclass(frozen=True)

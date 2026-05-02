@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS choferes (
     apellido TEXT NOT NULL,
     numero_telefono TEXT NOT NULL DEFAULT '',
     fecha_vencimiento_registro TEXT NOT NULL,
+    regularidad_registro_meses INTEGER NOT NULL DEFAULT 12,
     activo INTEGER NOT NULL DEFAULT 1,
     creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -65,9 +66,51 @@ CREATE TABLE IF NOT EXISTS vehiculos (
     tipo TEXT NOT NULL CHECK (tipo IN ('CAMION', 'SEMI')),
     nombre_identificatorio TEXT NOT NULL,
     patente TEXT NOT NULL UNIQUE,
+    km_actual INTEGER NOT NULL DEFAULT 0,
+    chofer_predeterminado_id INTEGER,
     observaciones TEXT,
     activo INTEGER NOT NULL DEFAULT 1,
-    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (chofer_predeterminado_id) REFERENCES choferes(id)
+);
+
+CREATE TABLE IF NOT EXISTS vehiculo_mantenimientos (
+    id INTEGER PRIMARY KEY,
+    vehiculo_id INTEGER NOT NULL,
+    fecha_ultimo_mantenimiento TEXT NOT NULL,
+    fecha_proximo_mantenimiento TEXT NOT NULL,
+    km_proximo_mantenimiento INTEGER NOT NULL DEFAULT 0,
+    regularidad_fecha_meses INTEGER NOT NULL DEFAULT 0,
+    regularidad_km INTEGER NOT NULL DEFAULT 0,
+    descripcion TEXT NOT NULL DEFAULT '',
+    observaciones TEXT NOT NULL DEFAULT '',
+    activo INTEGER NOT NULL DEFAULT 1,
+    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (vehiculo_id) REFERENCES vehiculos(id)
+);
+
+CREATE TABLE IF NOT EXISTS vehiculo_mantenimiento_historial (
+    id INTEGER PRIMARY KEY,
+    mantenimiento_id INTEGER NOT NULL,
+    vehiculo_id INTEGER NOT NULL,
+    fecha_ultimo_mantenimiento TEXT NOT NULL,
+    fecha_proximo_mantenimiento TEXT NOT NULL,
+    km_proximo_mantenimiento INTEGER NOT NULL DEFAULT 0,
+    fuera_de_tiempo INTEGER NOT NULL DEFAULT 0,
+    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (mantenimiento_id) REFERENCES vehiculo_mantenimientos(id),
+    FOREIGN KEY (vehiculo_id) REFERENCES vehiculos(id)
+);
+
+CREATE TABLE IF NOT EXISTS vehiculo_combustible_cargas (
+    id INTEGER PRIMARY KEY,
+    vehiculo_id INTEGER NOT NULL,
+    fecha_carga TEXT NOT NULL,
+    litros_cargados NUMERIC NOT NULL DEFAULT 0,
+    km_actual_camion INTEGER NOT NULL DEFAULT 0,
+    creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (vehiculo_id) REFERENCES vehiculos(id)
 );
 
 CREATE TABLE IF NOT EXISTS empresas_peaje (
@@ -171,6 +214,20 @@ CREATE INDEX IF NOT EXISTS idx_choferes_apellido_nombre ON choferes(apellido, no
 CREATE INDEX IF NOT EXISTS idx_vehiculos_tipo ON vehiculos(tipo);
 CREATE INDEX IF NOT EXISTS idx_vehiculos_nombre_identificatorio
     ON vehiculos(nombre_identificatorio);
+CREATE INDEX IF NOT EXISTS idx_vehiculo_mantenimientos_vehiculo_id
+    ON vehiculo_mantenimientos(vehiculo_id);
+CREATE INDEX IF NOT EXISTS idx_vehiculo_mantenimientos_proximo
+    ON vehiculo_mantenimientos(fecha_proximo_mantenimiento);
+CREATE INDEX IF NOT EXISTS idx_vehiculo_mantenimientos_km_proximo
+    ON vehiculo_mantenimientos(km_proximo_mantenimiento);
+CREATE INDEX IF NOT EXISTS idx_vehiculo_mantenimiento_historial_vehiculo_id
+    ON vehiculo_mantenimiento_historial(vehiculo_id);
+CREATE INDEX IF NOT EXISTS idx_vehiculo_mantenimiento_historial_ultimo
+    ON vehiculo_mantenimiento_historial(fecha_ultimo_mantenimiento);
+CREATE INDEX IF NOT EXISTS idx_vehiculo_combustible_cargas_vehiculo_id
+    ON vehiculo_combustible_cargas(vehiculo_id);
+CREATE INDEX IF NOT EXISTS idx_vehiculo_combustible_cargas_fecha
+    ON vehiculo_combustible_cargas(fecha_carga);
 CREATE INDEX IF NOT EXISTS idx_empresas_peaje_nombre ON empresas_peaje(nombre);
 CREATE INDEX IF NOT EXISTS idx_peajes_nombre ON peajes(nombre);
 CREATE INDEX IF NOT EXISTS idx_peajes_empresa_id ON peajes(empresa_id);
@@ -360,6 +417,8 @@ def initialize_database(database_path: Path, *, seed: bool = False) -> None:
         _migrate_peajes_from_viajes(connection)
         _migrate_lugar_roles_from_viajes(connection)
         _migrate_alertas_app(connection)
+        _migrate_vehiculo_mantenimientos(connection)
+        _migrate_vehiculo_combustible_cargas(connection)
         connection.executescript(POST_MIGRATION_SQL)
         if seed:
             connection.executescript(SEED_SQL)
@@ -374,6 +433,9 @@ def clear_database(database_path: Path) -> None:
             "viaje_peajes",
             "viajes",
             "lugar_roles",
+            "vehiculo_mantenimiento_historial",
+            "vehiculo_mantenimientos",
+            "vehiculo_combustible_cargas",
             "clientes",
             "cargas",
             "lugares",
@@ -414,6 +476,98 @@ def _migrate_alertas_app(connection: sqlite3.Connection) -> None:
             clave TEXT PRIMARY KEY,
             avisar_nuevamente_desde TEXT NOT NULL DEFAULT '',
             actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+
+def _migrate_vehiculo_mantenimientos(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vehiculo_mantenimientos (
+            id INTEGER PRIMARY KEY,
+            vehiculo_id INTEGER NOT NULL,
+            fecha_ultimo_mantenimiento TEXT NOT NULL,
+            fecha_proximo_mantenimiento TEXT NOT NULL,
+            km_proximo_mantenimiento INTEGER NOT NULL DEFAULT 0,
+            regularidad_fecha_meses INTEGER NOT NULL DEFAULT 0,
+            regularidad_km INTEGER NOT NULL DEFAULT 0,
+            descripcion TEXT NOT NULL DEFAULT '',
+            observaciones TEXT NOT NULL DEFAULT '',
+            activo INTEGER NOT NULL DEFAULT 1,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vehiculo_id) REFERENCES vehiculos(id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vehiculo_mantenimiento_historial (
+            id INTEGER PRIMARY KEY,
+            mantenimiento_id INTEGER NOT NULL,
+            vehiculo_id INTEGER NOT NULL,
+            fecha_ultimo_mantenimiento TEXT NOT NULL,
+            fecha_proximo_mantenimiento TEXT NOT NULL,
+            km_proximo_mantenimiento INTEGER NOT NULL DEFAULT 0,
+            fuera_de_tiempo INTEGER NOT NULL DEFAULT 0,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (mantenimiento_id) REFERENCES vehiculo_mantenimientos(id),
+            FOREIGN KEY (vehiculo_id) REFERENCES vehiculos(id)
+        )
+        """
+    )
+    mantenimiento_columns = _table_columns(connection, "vehiculo_mantenimientos")
+    if "km_proximo_mantenimiento" not in mantenimiento_columns:
+        connection.execute(
+            """
+            ALTER TABLE vehiculo_mantenimientos
+            ADD COLUMN km_proximo_mantenimiento INTEGER NOT NULL DEFAULT 0
+            """
+        )
+    if "regularidad_fecha_meses" not in mantenimiento_columns:
+        connection.execute(
+            """
+            ALTER TABLE vehiculo_mantenimientos
+            ADD COLUMN regularidad_fecha_meses INTEGER NOT NULL DEFAULT 0
+            """
+        )
+    if "regularidad_km" not in mantenimiento_columns:
+        connection.execute(
+            """
+            ALTER TABLE vehiculo_mantenimientos
+            ADD COLUMN regularidad_km INTEGER NOT NULL DEFAULT 0
+            """
+        )
+    if "descripcion" not in mantenimiento_columns:
+        connection.execute(
+            "ALTER TABLE vehiculo_mantenimientos ADD COLUMN descripcion TEXT NOT NULL DEFAULT ''"
+        )
+    if "observaciones" not in mantenimiento_columns:
+        connection.execute(
+            "ALTER TABLE vehiculo_mantenimientos ADD COLUMN observaciones TEXT NOT NULL DEFAULT ''"
+        )
+    historial_columns = _table_columns(connection, "vehiculo_mantenimiento_historial")
+    if "km_proximo_mantenimiento" not in historial_columns:
+        connection.execute(
+            """
+            ALTER TABLE vehiculo_mantenimiento_historial
+            ADD COLUMN km_proximo_mantenimiento INTEGER NOT NULL DEFAULT 0
+            """
+        )
+
+
+def _migrate_vehiculo_combustible_cargas(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS vehiculo_combustible_cargas (
+            id INTEGER PRIMARY KEY,
+            vehiculo_id INTEGER NOT NULL,
+            fecha_carga TEXT NOT NULL,
+            litros_cargados NUMERIC NOT NULL DEFAULT 0,
+            km_actual_camion INTEGER NOT NULL DEFAULT 0,
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vehiculo_id) REFERENCES vehiculos(id)
         )
         """
     )
@@ -481,16 +635,6 @@ def _migrate_lugares(connection: sqlite3.Connection) -> None:
 
 def _migrate_choferes(connection: sqlite3.Connection) -> None:
     columns = _table_columns(connection, "choferes")
-    required_columns = {
-        "dni",
-        "nombre",
-        "apellido",
-        "numero_telefono",
-        "fecha_vencimiento_registro",
-    }
-
-    if required_columns.issubset(columns):
-        return
 
     if "dni" not in columns:
         connection.execute("ALTER TABLE choferes ADD COLUMN dni TEXT")
@@ -502,6 +646,13 @@ def _migrate_choferes(connection: sqlite3.Connection) -> None:
         )
     if "fecha_vencimiento_registro" not in columns:
         connection.execute("ALTER TABLE choferes ADD COLUMN fecha_vencimiento_registro TEXT")
+    if "regularidad_registro_meses" not in columns:
+        connection.execute(
+            """
+            ALTER TABLE choferes
+            ADD COLUMN regularidad_registro_meses INTEGER NOT NULL DEFAULT 12
+            """
+        )
 
     if "telefono" in columns:
         connection.execute(
@@ -543,6 +694,14 @@ def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
 
 
 def _migrate_vehiculos(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "vehiculos")
+    if "km_actual" not in columns:
+        connection.execute(
+            "ALTER TABLE vehiculos ADD COLUMN km_actual INTEGER NOT NULL DEFAULT 0"
+        )
+    if "chofer_predeterminado_id" not in columns:
+        connection.execute("ALTER TABLE vehiculos ADD COLUMN chofer_predeterminado_id INTEGER")
+
     if _table_exists(connection, "camiones"):
         connection.execute(
             """

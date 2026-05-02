@@ -34,6 +34,33 @@ class AppSettingsTests(unittest.TestCase):
             },
         )
 
+    def test_preserves_font_sizes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = Path(temp_dir) / "settings.json"
+
+            save_app_settings(
+                settings_path,
+                {
+                    "company_name": "Mi Empresa",
+                    "font_sizes": {
+                        "base": 15,
+                        "page_title": 22,
+                        "section_title": 17,
+                    },
+                },
+            )
+
+            settings = load_app_settings(settings_path)
+
+        self.assertEqual(
+            settings["font_sizes"],
+            {
+                "base": 15,
+                "page_title": 22,
+                "section_title": 17,
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
