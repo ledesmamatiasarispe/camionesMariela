@@ -5072,7 +5072,6 @@ class MainWindow(QMainWindow):
         spin.setRange(0, 999_999_999)
         spin.setDecimals(2)
         spin.setSingleStep(1000)
-        spin.setPrefix("$ ")
         return spin
 
     def _decimal_input(self) -> QDoubleSpinBox:
@@ -5295,7 +5294,6 @@ class RecordDialog(QDialog):
                 widget.setRange(0, 999_999_999)
                 widget.setDecimals(2)
                 widget.setSingleStep(1000)
-                widget.setPrefix("$ ")
                 widget.setValue(float(value or 0))
             elif field_type == "decimal":
                 widget = QDoubleSpinBox()
