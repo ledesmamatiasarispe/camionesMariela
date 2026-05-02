@@ -49,6 +49,7 @@ class ViajeRepositoryTests(unittest.TestCase):
             assert data is not None
             self.assertEqual(data["cliente_id"], 2)
             self.assertEqual(data["carga_id"], 2)
+            self.assertEqual(data["carga_codigo"], "CONT-00000000000000000002")
             self.assertEqual(data["chofer_id"], 2)
             self.assertEqual(data["semi_id"], 1002)
             self.assertEqual(data["peaje_ids"], (2, 3))

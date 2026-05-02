@@ -139,6 +139,8 @@ class VehiculoCombustibleConsumo:
     km_recorridos: int
     litros_computados: float
     consumo_litros_100km: float | None
+    ultimo_consumo_litros_100km: float | None
+    ultimo_chofer: str
 
 
 @dataclass(frozen=True)

@@ -1074,6 +1074,9 @@ class MainWindow(QMainWindow):
             show_actions=False,
         )
         vehiculos_panel.setMinimumWidth(260)
+        vehiculos_table = self.object_tables.get("Vehiculos")
+        if vehiculos_table is not None:
+            vehiculos_table.itemDoubleClicked.connect(lambda _item: self._edit_vehiculo())
         splitter.addWidget(vehiculos_panel)
         detail_stack = QStackedWidget()
         detail_stack.addWidget(self._build_mantenimientos_panel())
@@ -1159,6 +1162,7 @@ class MainWindow(QMainWindow):
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.itemDoubleClicked.connect(lambda _item: self._edit_mantenimiento())
         self.mantenimientos_table = table
 
         layout.addWidget(header)
@@ -1292,9 +1296,7 @@ class MainWindow(QMainWindow):
         )
         empresas_table = self.object_tables.get("Peajes")
         if empresas_table is not None:
-            empresas_table.itemDoubleClicked.connect(
-                lambda _item: self._show_selected_empresa_peajes()
-            )
+            empresas_table.itemDoubleClicked.connect(lambda _item: self._edit_peaje_empresa())
 
         splitter.addWidget(empresas_panel)
         splitter.addWidget(self._build_peajes_detail_panel())
@@ -1363,6 +1365,7 @@ class MainWindow(QMainWindow):
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
+        table.itemDoubleClicked.connect(lambda _item: self._edit_peaje())
         self.peajes_detail_table = table
 
         layout.addWidget(header)
@@ -2183,6 +2186,8 @@ class MainWindow(QMainWindow):
         )
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        if edit_callback is not None:
+            table.itemDoubleClicked.connect(lambda _item, callback=edit_callback: callback())
 
         for row_index, (row_id, row) in enumerate(rows):
             id_item = QTableWidgetItem(str(row_id))
@@ -2868,14 +2873,16 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(title)
         header_layout.addWidget(description)
 
-        table = QTableWidget(0, 5)
+        table = QTableWidget(0, 7)
         table.setHorizontalHeaderLabels(
             [
                 "Camion",
                 "Cargas",
                 "Km recorridos",
                 "Lts computados",
-                "Consumo lts/100km",
+                "Consumo prom. lts/100km",
+                "Ultimo consumo lts/100km",
+                "Ultimo chofer",
             ]
         )
         table.verticalHeader().setVisible(False)
@@ -2908,6 +2915,12 @@ class MainWindow(QMainWindow):
                     if summary.consumo_litros_100km is not None
                     else "Sin datos"
                 ),
+                (
+                    _format_decimal(summary.ultimo_consumo_litros_100km)
+                    if summary.ultimo_consumo_litros_100km is not None
+                    else "Sin datos"
+                ),
+                summary.ultimo_chofer or "Sin datos",
             ]
             for column_index, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -3065,6 +3078,7 @@ class MainWindow(QMainWindow):
         )
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.itemDoubleClicked.connect(lambda _item: self._edit_viaje())
         self._refresh_table()
 
         layout.addWidget(header)
@@ -3947,7 +3961,9 @@ class MainWindow(QMainWindow):
                     fecha=str(values["fecha"]),
                     cliente_id=int(values["cliente_id"]),
                     carta_porte=str(values["carta_porte"]).strip(),
-                    carga_id=int(values["carga_id"]),
+                    carga_id=self.carga_repository.get_or_create(
+                        codigo_contenedor=str(values["carga_codigo"]).strip()
+                    ),
                     lugar_carga_id=int(values["lugar_carga_id"]),
                     lugar_descarga_id=int(values["lugar_descarga_id"]),
                     observaciones=str(values["observaciones"]).strip(),
@@ -4405,14 +4421,9 @@ class MainWindow(QMainWindow):
                 "required": False,
             },
             {
-                "key": "carga_id",
+                "key": "carga_codigo",
                 "label": "Carga",
-                "type": "combo",
-                "value": viaje["carga_id"],
-                "options": [
-                    (item.codigo_contenedor, item.id)
-                    for item in self.carga_repository.list_all()
-                ],
+                "value": viaje["carga_codigo"],
             },
             {
                 "key": "lugar_carga_id",

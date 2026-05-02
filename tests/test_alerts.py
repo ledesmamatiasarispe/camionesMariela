@@ -113,6 +113,35 @@ class AlertRepositoryTests(unittest.TestCase):
             self.assertEqual(summary.km_recorridos, 1000)
             self.assertEqual(summary.litros_computados, 200)
             self.assertEqual(summary.consumo_litros_100km, 20)
+            self.assertEqual(summary.ultimo_consumo_litros_100km, 20)
+
+    def test_fuel_consumption_summary_includes_last_driver(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "gestion.sqlite3"
+            initialize_database(database_path, seed=True)
+            combustible_repository = VehiculoCombustibleRepository(database_path)
+
+            combustible_repository.create(
+                vehiculo_id=1,
+                fecha_carga="2026-05-01",
+                litros_cargados=100,
+                km_actual_camion=10000,
+            )
+            combustible_repository.create(
+                vehiculo_id=1,
+                fecha_carga="2026-05-10",
+                litros_cargados=125,
+                km_actual_camion=10500,
+            )
+
+            summary = next(
+                item
+                for item in combustible_repository.consumption_summary()
+                if item.vehiculo_id == 1
+            )
+
+        self.assertEqual(summary.ultimo_consumo_litros_100km, 25)
+        self.assertEqual(summary.ultimo_chofer, "Juan Perez")
 
     def test_driver_license_alert_repeats_weekly_until_validated(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

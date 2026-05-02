@@ -249,7 +249,7 @@ class ViajeRepository:
                     gas_oil_lts = ?,
                     estado = ?,
                     actualizado_en = CURRENT_TIMESTAMP
-                WHERE id = ?
+                WHERE viajes.id = ?
                 """,
                 (
                     fecha,
@@ -273,28 +273,30 @@ class ViajeRepository:
             row = connection.execute(
                 """
                 SELECT
-                    id,
-                    fecha,
-                    cliente_id,
-                    carta_porte,
-                    carga_id,
-                    lugar_carga_id,
-                    lugar_descarga_id,
-                    chofer_id,
-                    camion_id,
-                    semi_id,
-                    tipo_carga,
-                    tarifa,
-                    COALESCE(fecha_descarga_tarifa, '') AS fecha_descarga_tarifa,
-                    demora,
-                    COALESCE(fecha_descarga_demora, '') AS fecha_descarga_demora,
-                    vacio,
-                    COALESCE(fecha_descarga_vacio, '') AS fecha_descarga_vacio,
-                    COALESCE(gas_oil_lts, 0) AS gas_oil_lts,
-                    COALESCE(observaciones, '') AS observaciones,
-                    estado
+                    viajes.id,
+                    viajes.fecha,
+                    viajes.cliente_id,
+                    viajes.carta_porte,
+                    viajes.carga_id,
+                    cargas.codigo_contenedor AS carga_codigo,
+                    viajes.lugar_carga_id,
+                    viajes.lugar_descarga_id,
+                    viajes.chofer_id,
+                    viajes.camion_id,
+                    viajes.semi_id,
+                    viajes.tipo_carga,
+                    viajes.tarifa,
+                    COALESCE(viajes.fecha_descarga_tarifa, '') AS fecha_descarga_tarifa,
+                    viajes.demora,
+                    COALESCE(viajes.fecha_descarga_demora, '') AS fecha_descarga_demora,
+                    viajes.vacio,
+                    COALESCE(viajes.fecha_descarga_vacio, '') AS fecha_descarga_vacio,
+                    COALESCE(viajes.gas_oil_lts, 0) AS gas_oil_lts,
+                    COALESCE(viajes.observaciones, '') AS observaciones,
+                    viajes.estado
                 FROM viajes
-                WHERE id = ?
+                JOIN cargas ON cargas.id = viajes.carga_id
+                WHERE viajes.id = ?
                 """,
                 (viaje_id,),
             ).fetchone()
@@ -1605,6 +1607,19 @@ class VehiculoCombustibleRepository:
                 vehiculos.id AS vehiculo_id,
                 vehiculos.nombre_identificatorio || ' - ' || vehiculos.patente
                     AS vehiculo_etiqueta,
+                COALESCE(
+                    (
+                        SELECT trim(choferes.nombre || ' ' || choferes.apellido)
+                        FROM viajes
+                        JOIN choferes ON choferes.id = viajes.chofer_id
+                        WHERE viajes.camion_id = vehiculos.id
+                        ORDER BY
+                            COALESCE(NULLIF(viajes.fecha, ''), viajes.creado_en) DESC,
+                            viajes.id DESC
+                        LIMIT 1
+                    ),
+                    ''
+                ) AS ultimo_chofer,
                 vehiculo_combustible_cargas.fecha_carga,
                 vehiculo_combustible_cargas.litros_cargados,
                 vehiculo_combustible_cargas.km_actual_camion,
@@ -1630,6 +1645,7 @@ class VehiculoCombustibleRepository:
                 vehiculo_id,
                 {
                     "vehiculo_etiqueta": str(row["vehiculo_etiqueta"]),
+                    "ultimo_chofer": str(row["ultimo_chofer"]),
                     "cargas": [],
                 },
             )
@@ -1647,12 +1663,14 @@ class VehiculoCombustibleRepository:
             km_recorridos = 0
             litros_computados = 0.0
             previous_km: int | None = None
+            ultimo_consumo: float | None = None
             for current_km, litros in cargas:
                 if previous_km is not None:
                     delta_km = current_km - previous_km
                     if delta_km > 0:
                         km_recorridos += delta_km
                         litros_computados += litros
+                        ultimo_consumo = litros / delta_km * 100
                 previous_km = current_km
             consumo = (
                 litros_computados / km_recorridos * 100
@@ -1667,6 +1685,8 @@ class VehiculoCombustibleRepository:
                     km_recorridos=km_recorridos,
                     litros_computados=litros_computados,
                     consumo_litros_100km=consumo,
+                    ultimo_consumo_litros_100km=ultimo_consumo,
+                    ultimo_chofer=str(group["ultimo_chofer"]),
                 )
             )
         return summaries
