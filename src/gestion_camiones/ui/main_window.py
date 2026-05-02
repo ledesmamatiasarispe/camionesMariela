@@ -1246,7 +1246,11 @@ class MainWindow(QMainWindow):
         self.combustible_vehiculo_combo = combo
         close_button = QPushButton("Cerrar registro")
         close_button.clicked.connect(self._close_registro_combustible)
+        delete_button = QPushButton("Eliminar registro")
+        delete_button.setObjectName("dangerButton")
+        delete_button.clicked.connect(self._delete_combustible_carga)
         controls.addWidget(combo, stretch=1)
+        controls.addWidget(delete_button)
         controls.addWidget(close_button)
         header_layout.addLayout(controls)
 
@@ -2791,6 +2795,23 @@ class MainWindow(QMainWindow):
                 peaje_ids.append(int(item.text()))
         return tuple(peaje_ids)
 
+    def _selected_combustible_id(self) -> int | None:
+        table = self.combustible_table
+        if table is None:
+            return None
+
+        row = table.currentRow()
+        if row < 0:
+            QMessageBox.warning(
+                self,
+                "Seleccion requerida",
+                "Selecciona un registro de combustible primero.",
+            )
+            return None
+
+        item = table.item(row, 0)
+        return None if item is None else int(item.text())
+
     def _selected_viaje_id(self) -> int | None:
         if self.table is None:
             return None
@@ -3641,6 +3662,20 @@ class MainWindow(QMainWindow):
             self._refresh_fuel_consumption_table()
 
         self._run_data_action("Carga de combustible registrada.", save)
+
+    def _delete_combustible_carga(self) -> None:
+        carga_id = self._selected_combustible_id()
+        if carga_id is None:
+            return
+        if not self._confirm_delete("registro de combustible"):
+            return
+
+        def delete_and_refresh() -> None:
+            self.combustible_repository.delete(carga_id)
+            self._refresh_combustible_table()
+            self._refresh_fuel_consumption_table()
+
+        self._run_silent_data_action(delete_and_refresh)
 
     def _create_mantenimiento(self) -> None:
         if self.selected_mantenimiento_vehiculo_id is None:

@@ -1591,6 +1591,14 @@ class VehiculoCombustibleRepository:
             connection.commit()
             return int(cursor.lastrowid)
 
+    def delete(self, carga_id: int) -> None:
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "DELETE FROM vehiculo_combustible_cargas WHERE id = ?",
+                (carga_id,),
+            )
+            connection.commit()
+
     def consumption_summary(self) -> list[VehiculoCombustibleConsumo]:
         query = """
             SELECT

@@ -48,6 +48,31 @@ class AlertRepositoryTests(unittest.TestCase):
             self.assertEqual(cargas[0].litros_cargados, 150.5)
             self.assertEqual(cargas[0].km_actual_camion, 12340)
 
+    def test_can_delete_fuel_load_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "gestion.sqlite3"
+            initialize_database(database_path, seed=False)
+            vehiculo_repository = VehiculoRepository(database_path)
+            combustible_repository = VehiculoCombustibleRepository(database_path)
+
+            vehiculo_id = vehiculo_repository.create(
+                tipo="CAMION",
+                nombre_identificatorio="Camion combustible",
+                patente="DEL123",
+                km_actual=12000,
+                observaciones="",
+            )
+            carga_id = combustible_repository.create(
+                vehiculo_id=vehiculo_id,
+                fecha_carga="2026-05-02",
+                litros_cargados=150.5,
+                km_actual_camion=12340,
+            )
+
+            combustible_repository.delete(carga_id)
+
+            self.assertEqual(combustible_repository.list_all(vehiculo_id=vehiculo_id), [])
+
     def test_fuel_consumption_summary_uses_successive_loads(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             database_path = Path(temp_dir) / "gestion.sqlite3"
