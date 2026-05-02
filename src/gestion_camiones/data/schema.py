@@ -153,6 +153,7 @@ CREATE TABLE IF NOT EXISTS viajes (
     carga_id INTEGER NOT NULL,
     lugar_carga_id INTEGER NOT NULL,
     lugar_descarga_id INTEGER NOT NULL,
+    lugar_descarga_vacio_id INTEGER,
     chofer_id INTEGER NOT NULL,
     camion_id INTEGER NOT NULL,
     semi_id INTEGER,
@@ -173,6 +174,7 @@ CREATE TABLE IF NOT EXISTS viajes (
     FOREIGN KEY (carga_id) REFERENCES cargas(id),
     FOREIGN KEY (lugar_carga_id) REFERENCES lugares(id),
     FOREIGN KEY (lugar_descarga_id) REFERENCES lugares(id),
+    FOREIGN KEY (lugar_descarga_vacio_id) REFERENCES lugares(id),
     FOREIGN KEY (chofer_id) REFERENCES choferes(id),
     FOREIGN KEY (camion_id) REFERENCES vehiculos(id),
     FOREIGN KEY (semi_id) REFERENCES vehiculos(id)
@@ -408,6 +410,7 @@ def initialize_database(database_path: Path, *, seed: bool = False) -> None:
         _migrate_viaje_fecha(connection)
         _migrate_viaje_carta_porte(connection)
         _migrate_viaje_fechas_descarga(connection)
+        _migrate_viaje_lugar_descarga_vacio(connection)
         _migrate_viaje_gas_oil_lts(connection)
         _migrate_tipo_carga(connection)
         _migrate_tipos_carga(connection)
@@ -934,8 +937,14 @@ def _migrate_viaje_fechas_descarga(connection: sqlite3.Connection) -> None:
                 NULLIF(fecha_descarga_demora, ''),
                 fecha_descarga_real
             )
-            """
-        )
+        """
+    )
+
+
+def _migrate_viaje_lugar_descarga_vacio(connection: sqlite3.Connection) -> None:
+    columns = _table_columns(connection, "viajes")
+    if "lugar_descarga_vacio_id" not in columns:
+        connection.execute("ALTER TABLE viajes ADD COLUMN lugar_descarga_vacio_id INTEGER")
 
 
 def _migrate_viaje_gas_oil_lts(connection: sqlite3.Connection) -> None:

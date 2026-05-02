@@ -163,6 +163,7 @@ class ViajeRepository:
                     carga_id,
                     lugar_carga_id,
                     lugar_descarga_id,
+                    lugar_descarga_vacio_id,
                     chofer_id,
                     camion_id,
                     semi_id,
@@ -177,7 +178,7 @@ class ViajeRepository:
                     peajes,
                     observaciones,
                     estado
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     viaje.fecha,
@@ -186,6 +187,7 @@ class ViajeRepository:
                     viaje.carga_id,
                     viaje.lugar_carga_id,
                     viaje.lugar_descarga_id,
+                    viaje.lugar_descarga_vacio_id,
                     viaje.chofer_id,
                     viaje.camion_id,
                     viaje.semi_id,
@@ -281,6 +283,7 @@ class ViajeRepository:
                     cargas.codigo_contenedor AS carga_codigo,
                     viajes.lugar_carga_id,
                     viajes.lugar_descarga_id,
+                    viajes.lugar_descarga_vacio_id,
                     viajes.chofer_id,
                     viajes.camion_id,
                     viajes.semi_id,
@@ -335,6 +338,7 @@ class ViajeRepository:
                     carga_id = ?,
                     lugar_carga_id = ?,
                     lugar_descarga_id = ?,
+                    lugar_descarga_vacio_id = ?,
                     chofer_id = ?,
                     camion_id = ?,
                     semi_id = ?,
@@ -359,6 +363,7 @@ class ViajeRepository:
                     viaje.carga_id,
                     viaje.lugar_carga_id,
                     viaje.lugar_descarga_id,
+                    viaje.lugar_descarga_vacio_id,
                     viaje.chofer_id,
                     viaje.camion_id,
                     viaje.semi_id,

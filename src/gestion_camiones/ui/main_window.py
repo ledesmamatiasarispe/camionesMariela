@@ -224,11 +224,16 @@ VIAJE_FORM_FIELDS = (
     ("fecha_descarga_demora", "F.Desc demora"),
     ("vacio", "Vacio"),
     ("fecha_descarga_vacio", "F.Desc vacio"),
+    ("lugar_descarga_vacio", "Lugar descarga vacio"),
     ("gas_oil_lts", "Gas oil (lts)"),
     ("peaje_empresa", "Empresa peajes"),
     ("peajes", "Peajes"),
 )
 VIAJE_FORM_LABELS = dict(VIAJE_FORM_FIELDS)
+VIAJE_OPTION_TOGGLE_LABELS = {
+    "demora_habilitada": "Demora",
+    "vacio_habilitada": "Vacio",
+}
 VIAJE_CONFIGURABLE_FIELD_KEYS = tuple(
     key for key, _label in VIAJE_FORM_FIELDS if key != "cliente"
 )
@@ -897,6 +902,8 @@ class MainWindow(QMainWindow):
         fecha_descarga_demora.setCalendarPopup(True)
         fecha_descarga_demora.setDisplayFormat("yyyy-MM-dd")
         fecha_descarga_demora.setDate(QDate.currentDate())
+        demora_habilitada = QCheckBox()
+        demora_habilitada.toggled.connect(self._apply_viaje_field_visibility)
 
         vacio = self._money_input()
         fecha_descarga_vacio = QDateEdit()
@@ -904,6 +911,9 @@ class MainWindow(QMainWindow):
         fecha_descarga_vacio.setCalendarPopup(True)
         fecha_descarga_vacio.setDisplayFormat("yyyy-MM-dd")
         fecha_descarga_vacio.setDate(QDate.currentDate())
+        vacio_habilitada = QCheckBox()
+        vacio_habilitada.toggled.connect(self._apply_viaje_field_visibility)
+        lugar_descarga_vacio = self._build_lugar_combo("DESCARGA")
 
         gas_oil_lts = self._decimal_input()
 
@@ -927,10 +937,13 @@ class MainWindow(QMainWindow):
             "semi": semi,
             "tarifa": tarifa,
             "fecha_descarga_tarifa": fecha_descarga_tarifa,
+            "demora_habilitada": demora_habilitada,
             "demora": demora,
             "fecha_descarga_demora": fecha_descarga_demora,
+            "vacio_habilitada": vacio_habilitada,
             "vacio": vacio,
             "fecha_descarga_vacio": fecha_descarga_vacio,
+            "lugar_descarga_vacio": lugar_descarga_vacio,
             "gas_oil_lts": gas_oil_lts,
             "peaje_empresa": peaje_empresa,
             "peajes": peajes,
@@ -950,10 +963,13 @@ class MainWindow(QMainWindow):
         self._add_viaje_form_row(right_form, "semi", semi)
         self._add_viaje_form_row(right_form, "tarifa", tarifa)
         self._add_viaje_form_row(right_form, "fecha_descarga_tarifa", fecha_descarga_tarifa)
+        self._add_viaje_form_row(right_form, "demora_habilitada", demora_habilitada)
         self._add_viaje_form_row(right_form, "demora", demora)
         self._add_viaje_form_row(right_form, "fecha_descarga_demora", fecha_descarga_demora)
+        self._add_viaje_form_row(right_form, "vacio_habilitada", vacio_habilitada)
         self._add_viaje_form_row(right_form, "vacio", vacio)
         self._add_viaje_form_row(right_form, "fecha_descarga_vacio", fecha_descarga_vacio)
+        self._add_viaje_form_row(right_form, "lugar_descarga_vacio", lugar_descarga_vacio)
         self._add_viaje_form_row(right_form, "gas_oil_lts", gas_oil_lts)
         self._add_viaje_form_row(right_form, "peaje_empresa", peaje_empresa)
         self._add_viaje_form_row(right_form, "peajes", peajes)
@@ -987,7 +1003,11 @@ class MainWindow(QMainWindow):
         field_key: str,
         widget: QWidget,
     ) -> None:
-        form.addRow(VIAJE_FORM_LABELS[field_key], widget)
+        label_text = VIAJE_FORM_LABELS.get(
+            field_key,
+            VIAJE_OPTION_TOGGLE_LABELS.get(field_key, field_key),
+        )
+        form.addRow(label_text, widget)
         label = form.labelForField(widget)
         if label is not None:
             self.viaje_form_row_labels[field_key] = label
@@ -3966,6 +3986,9 @@ class MainWindow(QMainWindow):
                     ),
                     lugar_carga_id=int(values["lugar_carga_id"]),
                     lugar_descarga_id=int(values["lugar_descarga_id"]),
+                    lugar_descarga_vacio_id=self._optional_int(
+                        values["lugar_descarga_vacio_id"]
+                    ),
                     observaciones=str(values["observaciones"]).strip(),
                     chofer_id=int(values["chofer_id"]),
                     tipo_carga=str(values["tipo_carga"]),
@@ -4527,6 +4550,14 @@ class MainWindow(QMainWindow):
                 "required": False,
             },
             {
+                "key": "lugar_descarga_vacio_id",
+                "label": "Lugar descarga vacio",
+                "type": "combo",
+                "value": viaje["lugar_descarga_vacio_id"],
+                "options": [("Sin lugar", None)] + self._lugar_options("DESCARGA"),
+                "required": False,
+            },
+            {
                 "key": "gas_oil_lts",
                 "label": "Gas oil (lts)",
                 "type": "decimal",
@@ -4624,11 +4655,14 @@ class MainWindow(QMainWindow):
             return set(VIAJE_CONFIGURABLE_FIELD_KEYS)
 
         allowed_fields = set(VIAJE_CONFIGURABLE_FIELD_KEYS)
-        return {
+        enabled = {
             str(field_key)
             for field_key in configured_fields
             if str(field_key) in allowed_fields
         }
+        if "vacio" in enabled and "lugar_descarga_vacio" not in enabled:
+            enabled.add("lugar_descarga_vacio")
+        return enabled
 
     def _set_cliente_viaje_fields(
         self,
@@ -4650,13 +4684,36 @@ class MainWindow(QMainWindow):
     def _apply_viaje_field_visibility(self) -> None:
         cliente_id = self._current_viaje_cliente_id()
         enabled_fields = self._enabled_viaje_field_keys(cliente_id)
+        demora_group_enabled = bool(
+            {"demora", "fecha_descarga_demora"} & enabled_fields
+        )
+        vacio_group_enabled = bool(
+            {"vacio", "fecha_descarga_vacio", "lugar_descarga_vacio"} & enabled_fields
+        )
+        demora_checked = self._checkbox_checked("demora_habilitada")
+        vacio_checked = self._checkbox_checked("vacio_habilitada")
 
         for field_key, widget in self.form_widgets.items():
-            visible = field_key == "cliente" or field_key in enabled_fields
+            if field_key == "cliente":
+                visible = True
+            elif field_key == "demora_habilitada":
+                visible = demora_group_enabled
+            elif field_key in {"demora", "fecha_descarga_demora"}:
+                visible = field_key in enabled_fields and demora_checked
+            elif field_key == "vacio_habilitada":
+                visible = vacio_group_enabled
+            elif field_key in {"vacio", "fecha_descarga_vacio", "lugar_descarga_vacio"}:
+                visible = field_key in enabled_fields and vacio_checked
+            else:
+                visible = field_key in enabled_fields
             widget.setVisible(visible)
             label = self.viaje_form_row_labels.get(field_key)
             if label is not None:
                 label.setVisible(visible)
+
+    def _checkbox_checked(self, key: str) -> bool:
+        widget = self.form_widgets.get(key)
+        return isinstance(widget, QCheckBox) and widget.isChecked()
 
     def _save_viaje(self) -> None:
         try:
@@ -4695,11 +4752,33 @@ class MainWindow(QMainWindow):
     def _collect_viaje_form(self) -> ViajeCreate:
         fecha = self._date_value("fecha")
         fecha_descarga_tarifa = self._date_value("fecha_descarga_tarifa")
-        fecha_descarga_demora = self._date_value("fecha_descarga_demora")
-        fecha_descarga_vacio = self._date_value("fecha_descarga_vacio")
+        enabled_fields = self._enabled_viaje_field_keys(self._current_viaje_cliente_id())
+        demora_habilitada = (
+            self._checkbox_checked("demora_habilitada")
+            and bool({"demora", "fecha_descarga_demora"} & enabled_fields)
+        )
+        vacio_habilitado = (
+            self._checkbox_checked("vacio_habilitada")
+            and bool(
+                {"vacio", "fecha_descarga_vacio", "lugar_descarga_vacio"}
+                & enabled_fields
+            )
+        )
+        fecha_descarga_demora = (
+            self._date_value("fecha_descarga_demora") if demora_habilitada else ""
+        )
+        fecha_descarga_vacio = (
+            self._date_value("fecha_descarga_vacio") if vacio_habilitado else ""
+        )
         cliente_id = self._required_combo_int("cliente")
         lugar_carga_id = self._required_combo_int("lugar_carga")
         lugar_descarga_id = self._required_combo_int("lugar_descarga")
+        lugar_descarga_vacio_id = (
+            self._required_combo_int("lugar_descarga_vacio")
+            if vacio_habilitado
+            and self.form_widgets["lugar_descarga_vacio"].isVisible()
+            else None
+        )
         chofer_id = self._required_combo_int("chofer")
         camion_id = self._required_combo_int("camion")
         semi_id = self._optional_combo_int("semi")
@@ -4713,6 +4792,7 @@ class MainWindow(QMainWindow):
             carga_id=carga_id,
             lugar_carga_id=lugar_carga_id,
             lugar_descarga_id=lugar_descarga_id,
+            lugar_descarga_vacio_id=lugar_descarga_vacio_id,
             observaciones=self._text_value("observaciones"),
             chofer_id=chofer_id,
             tipo_carga=str(self._combo_value("tipo_carga") or "GENERAL"),
@@ -4720,9 +4800,9 @@ class MainWindow(QMainWindow):
             semi_id=semi_id,
             tarifa=self._money_value("tarifa"),
             fecha_descarga_tarifa=fecha_descarga_tarifa,
-            demora=self._money_value("demora"),
+            demora=self._money_value("demora") if demora_habilitada else 0,
             fecha_descarga_demora=fecha_descarga_demora,
-            vacio=self._money_value("vacio"),
+            vacio=self._money_value("vacio") if vacio_habilitado else 0,
             fecha_descarga_vacio=fecha_descarga_vacio,
             gas_oil_lts=self._decimal_value("gas_oil_lts"),
             peaje_ids=peaje_ids,
@@ -4743,6 +4823,8 @@ class MainWindow(QMainWindow):
             carta_porte.clear()
 
         for widget in self.form_widgets.values():
+            if isinstance(widget, QCheckBox):
+                widget.setChecked(False)
             if isinstance(widget, QComboBox):
                 if widget.isEditable():
                     widget.setCurrentText("")
@@ -5182,6 +5264,7 @@ class MainWindow(QMainWindow):
             ],
             "lugar_carga": self._lugar_options("CARGA"),
             "lugar_descarga": self._lugar_options("DESCARGA"),
+            "lugar_descarga_vacio": self._lugar_options("DESCARGA"),
             "chofer": [
                 (f"{item.nombre_completo} - DNI {item.dni}", item.id)
                 for item in self.chofer_repository.list_all()

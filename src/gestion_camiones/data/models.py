@@ -207,6 +207,7 @@ class ViajeCreate:
     carga_id: int
     lugar_carga_id: int
     lugar_descarga_id: int
+    lugar_descarga_vacio_id: int | None
     observaciones: str
     chofer_id: int
     tipo_carga: str

@@ -25,6 +25,7 @@ class ViajeRepositoryTests(unittest.TestCase):
                     carga_id=2,
                     lugar_carga_id=2,
                     lugar_descarga_id=3,
+                    lugar_descarga_vacio_id=3,
                     observaciones="Editado",
                     chofer_id=2,
                     tipo_carga="PELIGROSA",
@@ -50,6 +51,7 @@ class ViajeRepositoryTests(unittest.TestCase):
             self.assertEqual(data["cliente_id"], 2)
             self.assertEqual(data["carga_id"], 2)
             self.assertEqual(data["carga_codigo"], "CONT-00000000000000000002")
+            self.assertEqual(data["lugar_descarga_vacio_id"], 3)
             self.assertEqual(data["chofer_id"], 2)
             self.assertEqual(data["semi_id"], 1002)
             self.assertEqual(data["peaje_ids"], (2, 3))
