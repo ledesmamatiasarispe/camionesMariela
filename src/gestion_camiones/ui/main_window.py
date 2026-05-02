@@ -2596,34 +2596,47 @@ class MainWindow(QMainWindow):
 
     def _edit_viaje(self) -> None:
         viaje_id = self._selected_viaje_id()
-        if viaje_id is None or self.table is None:
+        if viaje_id is None:
             return
-
-        row = self.table.currentRow()
+        viaje = self.viaje_repository.get_for_edit(viaje_id)
+        if viaje is None:
+            return
         values = self._record_values(
             "Editar viaje",
-            self._viaje_fields_from_row(row),
+            self._viaje_edit_fields(viaje),
         )
         if values is None:
             return
 
         def save() -> None:
-            self.viaje_repository.update_basic(
+            self.viaje_repository.update_full(
                 viaje_id,
-                fecha=str(values["fecha"]),
-                carta_porte=str(values["carta_porte"]).strip(),
-                observaciones=str(values["observaciones"]).strip(),
-                tarifa=float(values["tarifa"]),
-                fecha_descarga_tarifa=str(values["fecha_descarga_tarifa"]),
-                demora=float(values["demora"]),
-                fecha_descarga_demora=str(values["fecha_descarga_demora"]),
-                vacio=float(values["vacio"]),
-                fecha_descarga_vacio=str(values["fecha_descarga_vacio"]),
-                gas_oil_lts=float(values["gas_oil_lts"]),
+                ViajeCreate(
+                    fecha=str(values["fecha"]),
+                    cliente_id=int(values["cliente_id"]),
+                    carta_porte=str(values["carta_porte"]).strip(),
+                    carga_id=int(values["carga_id"]),
+                    lugar_carga_id=int(values["lugar_carga_id"]),
+                    lugar_descarga_id=int(values["lugar_descarga_id"]),
+                    observaciones=str(values["observaciones"]).strip(),
+                    chofer_id=int(values["chofer_id"]),
+                    tipo_carga=str(values["tipo_carga"]),
+                    camion_id=int(values["camion_id"]),
+                    semi_id=values["semi_id"] if isinstance(values["semi_id"], int) else None,
+                    tarifa=float(values["tarifa"]),
+                    fecha_descarga_tarifa=str(values["fecha_descarga_tarifa"]),
+                    demora=float(values["demora"]),
+                    fecha_descarga_demora=str(values["fecha_descarga_demora"]),
+                    vacio=float(values["vacio"]),
+                    fecha_descarga_vacio=str(values["fecha_descarga_vacio"]),
+                    gas_oil_lts=float(values["gas_oil_lts"]),
+                    peaje_ids=tuple(int(peaje_id) for peaje_id in values["peaje_ids"]),
+                ),
                 estado=str(values["estado"]).strip(),
             )
             self._refresh_table()
             self._refresh_metrics()
+            self._refresh_viaje_form_options()
 
         self._run_data_action("Viaje actualizado.", save)
 
@@ -2929,6 +2942,158 @@ class MainWindow(QMainWindow):
                 "value": self._decimal_from_display(self._cell(row, 19)),
             },
             {"key": "estado", "label": "Estado", "value": self._cell(row, 22)},
+        ]
+
+    def _viaje_edit_fields(self, viaje: dict[str, object]) -> list[dict[str, object]]:
+        return [
+            {"key": "fecha", "label": "Fecha", "type": "date", "value": viaje["fecha"]},
+            {
+                "key": "cliente_id",
+                "label": "Cliente",
+                "type": "combo",
+                "value": viaje["cliente_id"],
+                "options": [
+                    (item.etiqueta, item.id) for item in self.cliente_repository.list_all()
+                ],
+            },
+            {
+                "key": "carta_porte",
+                "label": "N° Carta de Porte",
+                "value": viaje["carta_porte"],
+                "required": False,
+            },
+            {
+                "key": "carga_id",
+                "label": "Carga",
+                "type": "combo",
+                "value": viaje["carga_id"],
+                "options": [
+                    (item.codigo_contenedor, item.id)
+                    for item in self.carga_repository.list_all()
+                ],
+            },
+            {
+                "key": "lugar_carga_id",
+                "label": "Lugar carga",
+                "type": "combo",
+                "value": viaje["lugar_carga_id"],
+                "options": self._lugar_options("CARGA"),
+            },
+            {
+                "key": "lugar_descarga_id",
+                "label": "L.Descarga",
+                "type": "combo",
+                "value": viaje["lugar_descarga_id"],
+                "options": self._lugar_options("DESCARGA"),
+            },
+            {
+                "key": "observaciones",
+                "label": "Observaciones",
+                "type": "multiline",
+                "value": viaje["observaciones"],
+                "required": False,
+            },
+            {
+                "key": "chofer_id",
+                "label": "Chofer",
+                "type": "combo",
+                "value": viaje["chofer_id"],
+                "options": [
+                    (f"{item.nombre_completo} - DNI {item.dni}", item.id)
+                    for item in self.chofer_repository.list_all()
+                ],
+            },
+            {
+                "key": "tipo_carga",
+                "label": "T.Carga",
+                "type": "combo",
+                "value": viaje["tipo_carga"],
+                "options": [
+                    (item.nombre, item.codigo)
+                    for item in self.tipo_carga_repository.list_all()
+                ],
+            },
+            {
+                "key": "camion_id",
+                "label": "Camion",
+                "type": "combo",
+                "value": viaje["camion_id"],
+                "options": [
+                    (item.etiqueta, item.id)
+                    for item in self.vehiculo_repository.list_all("CAMION")
+                ],
+            },
+            {
+                "key": "semi_id",
+                "label": "Semi",
+                "type": "combo",
+                "value": viaje["semi_id"],
+                "options": [("Sin semi", None)]
+                + [
+                    (item.etiqueta, item.id)
+                    for item in self.vehiculo_repository.list_all("SEMI")
+                ],
+            },
+            {
+                "key": "tarifa",
+                "label": "Tarifa",
+                "type": "money",
+                "value": viaje["tarifa"],
+            },
+            {
+                "key": "fecha_descarga_tarifa",
+                "label": "F.Desc tarifa",
+                "type": "date",
+                "value": viaje["fecha_descarga_tarifa"],
+                "required": False,
+            },
+            {
+                "key": "demora",
+                "label": "Demora",
+                "type": "money",
+                "value": viaje["demora"],
+            },
+            {
+                "key": "fecha_descarga_demora",
+                "label": "F.Desc demora",
+                "type": "date",
+                "value": viaje["fecha_descarga_demora"],
+                "required": False,
+            },
+            {
+                "key": "vacio",
+                "label": "Vacio",
+                "type": "money",
+                "value": viaje["vacio"],
+            },
+            {
+                "key": "fecha_descarga_vacio",
+                "label": "F.Desc vacio",
+                "type": "date",
+                "value": viaje["fecha_descarga_vacio"],
+                "required": False,
+            },
+            {
+                "key": "gas_oil_lts",
+                "label": "Gas oil (lts)",
+                "type": "decimal",
+                "value": viaje["gas_oil_lts"],
+            },
+            {
+                "key": "peaje_ids",
+                "label": "Peajes",
+                "type": "checks",
+                "value": viaje["peaje_ids"],
+                "options": [
+                    (
+                        f"{item.empresa_nombre} - {item.nombre} - {_format_money(item.costo)}",
+                        item.id,
+                    )
+                    for item in self.peaje_repository.list_all()
+                ],
+                "required": False,
+            },
+            {"key": "estado", "label": "Estado", "value": viaje["estado"]},
         ]
 
     def _find_by_id(self, items: list[object], item_id: int) -> object | None:

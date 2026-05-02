@@ -264,6 +264,125 @@ class ViajeRepository:
             )
             connection.commit()
 
+    def get_for_edit(self, viaje_id: int) -> dict[str, object] | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    id,
+                    fecha,
+                    cliente_id,
+                    carta_porte,
+                    carga_id,
+                    lugar_carga_id,
+                    lugar_descarga_id,
+                    chofer_id,
+                    camion_id,
+                    semi_id,
+                    tipo_carga,
+                    tarifa,
+                    COALESCE(fecha_descarga_tarifa, '') AS fecha_descarga_tarifa,
+                    demora,
+                    COALESCE(fecha_descarga_demora, '') AS fecha_descarga_demora,
+                    vacio,
+                    COALESCE(fecha_descarga_vacio, '') AS fecha_descarga_vacio,
+                    COALESCE(gas_oil_lts, 0) AS gas_oil_lts,
+                    COALESCE(observaciones, '') AS observaciones,
+                    estado
+                FROM viajes
+                WHERE id = ?
+                """,
+                (viaje_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            peaje_rows = connection.execute(
+                """
+                SELECT peaje_id
+                FROM viaje_peajes
+                WHERE viaje_id = ?
+                ORDER BY peaje_id
+                """,
+                (viaje_id,),
+            ).fetchall()
+
+        data = dict(row)
+        data["peaje_ids"] = tuple(int(peaje_row["peaje_id"]) for peaje_row in peaje_rows)
+        return data
+
+    def update_full(
+        self,
+        viaje_id: int,
+        viaje: ViajeCreate,
+        *,
+        estado: str,
+    ) -> None:
+        with closing(self._connect()) as connection:
+            peajes_total = self._peajes_total(connection, viaje.peaje_ids)
+            connection.execute(
+                """
+                UPDATE viajes
+                SET
+                    fecha = ?,
+                    cliente_id = ?,
+                    carta_porte = ?,
+                    carga_id = ?,
+                    lugar_carga_id = ?,
+                    lugar_descarga_id = ?,
+                    chofer_id = ?,
+                    camion_id = ?,
+                    semi_id = ?,
+                    tipo_carga = ?,
+                    tarifa = ?,
+                    fecha_descarga_tarifa = ?,
+                    demora = ?,
+                    fecha_descarga_demora = ?,
+                    vacio = ?,
+                    fecha_descarga_vacio = ?,
+                    gas_oil_lts = ?,
+                    peajes = ?,
+                    observaciones = ?,
+                    estado = ?,
+                    actualizado_en = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    viaje.fecha,
+                    viaje.cliente_id,
+                    viaje.carta_porte,
+                    viaje.carga_id,
+                    viaje.lugar_carga_id,
+                    viaje.lugar_descarga_id,
+                    viaje.chofer_id,
+                    viaje.camion_id,
+                    viaje.semi_id,
+                    viaje.tipo_carga,
+                    viaje.tarifa,
+                    viaje.fecha_descarga_tarifa,
+                    viaje.demora,
+                    viaje.fecha_descarga_demora,
+                    viaje.vacio,
+                    viaje.fecha_descarga_vacio,
+                    viaje.gas_oil_lts,
+                    peajes_total,
+                    viaje.observaciones,
+                    estado,
+                    viaje_id,
+                ),
+            )
+            connection.execute("DELETE FROM viaje_peajes WHERE viaje_id = ?", (viaje_id,))
+            for peaje_id in viaje.peaje_ids:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO viaje_peajes (viaje_id, peaje_id, costo)
+                    SELECT ?, id, costo
+                    FROM peajes
+                    WHERE id = ?
+                    """,
+                    (viaje_id, peaje_id),
+                )
+            connection.commit()
+
     def delete(self, viaje_id: int) -> None:
         with closing(self._connect()) as connection:
             connection.execute("DELETE FROM viaje_peajes WHERE viaje_id = ?", (viaje_id,))
