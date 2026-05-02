@@ -61,6 +61,23 @@ class AppSettingsTests(unittest.TestCase):
             },
         )
 
+    def test_preserves_database_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = Path(temp_dir) / "settings.json"
+            database_path = str(Path(temp_dir) / "otra-base.sqlite3")
+
+            save_app_settings(
+                settings_path,
+                {
+                    "company_name": "Mi Empresa",
+                    "database_path": database_path,
+                },
+            )
+
+            settings = load_app_settings(settings_path)
+
+        self.assertEqual(settings["database_path"], database_path)
+
 
 if __name__ == "__main__":
     unittest.main()

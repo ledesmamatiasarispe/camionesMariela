@@ -17,6 +17,7 @@ def load_app_settings(settings_path: Path) -> dict[str, object]:
     data: dict[str, object] = {
         "company_name": DEFAULT_COMPANY_NAME,
         "cliente_viaje_fields": {},
+        "database_path": "",
         "dialog_sizes": {},
         "splitter_sizes": {},
         "font_sizes": {},
@@ -32,6 +33,10 @@ def load_app_settings(settings_path: Path) -> dict[str, object]:
     company_name = stored.get("company_name")
     if isinstance(company_name, str):
         data["company_name"] = normalize_company_name(company_name)
+
+    database_path = stored.get("database_path")
+    if isinstance(database_path, str):
+        data["database_path"] = database_path.strip()
 
     cliente_viaje_fields = stored.get("cliente_viaje_fields")
     if isinstance(cliente_viaje_fields, dict):
@@ -93,6 +98,7 @@ def save_app_settings(settings_path: Path, settings: dict[str, object]) -> None:
     payload = {
         "company_name": normalize_company_name(str(settings.get("company_name", ""))),
         "cliente_viaje_fields": cliente_viaje_fields,
+        "database_path": str(settings.get("database_path", "")).strip(),
         "dialog_sizes": dialog_sizes,
         "splitter_sizes": splitter_sizes,
         "font_sizes": font_sizes,

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 import platform
 from pathlib import Path
 
 from gestion_camiones.config import APP_NAME
+
+DEFAULT_DATABASE_NAME = "gestion_camiones.sqlite3"
 
 
 def get_app_data_dir() -> Path:
@@ -23,7 +26,14 @@ def get_app_data_dir() -> Path:
 
 
 def get_database_path() -> Path:
-    return get_app_data_dir() / "gestion_camiones.sqlite3"
+    stored_path = _stored_database_path()
+    if stored_path is not None:
+        return stored_path
+    return get_default_database_path()
+
+
+def get_default_database_path() -> Path:
+    return get_app_data_dir() / DEFAULT_DATABASE_NAME
 
 
 def get_theme_path() -> Path:
@@ -32,6 +42,22 @@ def get_theme_path() -> Path:
 
 def get_settings_path() -> Path:
     return get_app_data_dir() / "settings.json"
+
+
+def _stored_database_path() -> Path | None:
+    settings_path = get_settings_path()
+    if not settings_path.exists():
+        return None
+
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    database_path = settings.get("database_path")
+    if not isinstance(database_path, str) or not database_path.strip():
+        return None
+    return Path(database_path).expanduser()
 
 
 def _safe_app_dir_name(name: str) -> str:

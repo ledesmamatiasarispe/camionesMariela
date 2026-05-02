@@ -47,7 +47,11 @@ from PySide6.QtWidgets import (
 from gestion_camiones import __version__
 from gestion_camiones.config import GITHUB_OWNER, GITHUB_REPO
 from gestion_camiones.data.models import AppAlert, ViajeCreate, ViajeResumen
-from gestion_camiones.data.paths import get_app_data_dir, get_settings_path
+from gestion_camiones.data.paths import (
+    get_app_data_dir,
+    get_default_database_path,
+    get_settings_path,
+)
 from gestion_camiones.data.repositories import (
     AlertRepository,
     CargaRepository,
@@ -61,7 +65,7 @@ from gestion_camiones.data.repositories import (
     VehiculoRepository,
     ViajeRepository,
 )
-from gestion_camiones.data.schema import clear_database
+from gestion_camiones.data.schema import clear_database, initialize_database
 from gestion_camiones.services.app_settings import (
     load_app_settings,
     normalize_company_name,
@@ -328,6 +332,7 @@ class MainWindow(QMainWindow):
         self.print_to_card: QFrame | None = None
         self.print_rows: list[ViajeResumen] = []
         self.company_name_input: QLineEdit | None = None
+        self.database_path_label: QLabel | None = None
         self.font_size_inputs: dict[str, QSpinBox] = {}
         self.form_widgets: dict[str, QWidget] = {}
         self.viaje_form_row_labels: dict[str, QWidget] = {}
@@ -1738,10 +1743,38 @@ class MainWindow(QMainWindow):
         title = QLabel("Base de datos")
         title.setObjectName("sectionTitle")
         description = QLabel(
-            "Borra viajes, clientes, lugares, choferes, vehiculos, peajes y tipos de carga."
+            "Administra la base que usa la app. Al elegir otra base se guarda para "
+            "los proximos inicios."
         )
         description.setObjectName("muted")
         description.setWordWrap(True)
+
+        path_label = QLabel()
+        path_label.setObjectName("muted")
+        path_label.setWordWrap(True)
+        path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.database_path_label = path_label
+        self._refresh_database_path_label()
+
+        path_buttons = QHBoxLayout()
+        path_buttons.setSpacing(12)
+
+        open_button = QPushButton("Abrir ubicacion")
+        open_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        open_button.clicked.connect(self._open_database_location)
+
+        choose_button = QPushButton("Elegir base de datos")
+        choose_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        choose_button.clicked.connect(self._choose_database_path)
+
+        default_button = QPushButton("Usar base por defecto")
+        default_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        default_button.clicked.connect(self._use_default_database_path)
+
+        path_buttons.addWidget(open_button)
+        path_buttons.addWidget(choose_button)
+        path_buttons.addWidget(default_button)
+        path_buttons.addStretch()
 
         clear_button = QPushButton("Vaciar base de datos")
         clear_button.setObjectName("dangerButton")
@@ -1750,6 +1783,8 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(title)
         layout.addWidget(description)
+        layout.addWidget(path_label)
+        layout.addLayout(path_buttons)
         layout.addWidget(clear_button, alignment=Qt.AlignmentFlag.AlignLeft)
         return panel
 
@@ -1774,10 +1809,143 @@ class MainWindow(QMainWindow):
         check_button.setCursor(Qt.CursorShape.PointingHandCursor)
         check_button.clicked.connect(lambda: self._start_update_check(interactive=True))
 
+        version_label = QLabel(f"Version actual: {__version__}")
+        version_label.setObjectName("muted")
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.addWidget(check_button)
+        controls.addWidget(version_label)
+        controls.addStretch()
+
         layout.addWidget(title)
         layout.addWidget(description)
-        layout.addWidget(check_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addLayout(controls)
         return panel
+
+    def _refresh_database_path_label(self) -> None:
+        if self.database_path_label is None:
+            return
+        self.database_path_label.setText(f"Ubicacion actual: {self.database_path}")
+
+    def _open_database_location(self) -> None:
+        target_dir = self.database_path.parent
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(target_dir))):
+            QMessageBox.warning(
+                self,
+                "Base de datos",
+                "No se pudo abrir la ubicacion de la base de datos.",
+            )
+
+    def _choose_database_path(self) -> None:
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Elegir base de datos",
+            str(self.database_path.parent),
+            "Bases SQLite (*.sqlite3 *.sqlite *.db);;Todos los archivos (*.*)",
+        )
+        if not file_path:
+            return
+        self._switch_database_path(Path(file_path))
+
+    def _use_default_database_path(self) -> None:
+        self._switch_database_path(get_default_database_path(), persist_default=True)
+
+    def _switch_database_path(
+        self,
+        database_path: Path,
+        *,
+        persist_default: bool = False,
+    ) -> None:
+        database_path = database_path.expanduser().resolve(strict=False)
+        current_path = self.database_path.expanduser().resolve(strict=False)
+        if database_path == current_path:
+            self.app_settings["database_path"] = "" if persist_default else str(database_path)
+            self._save_app_settings()
+            self._refresh_object_table("Opciones")
+            self._refresh_database_path_label()
+            QMessageBox.information(
+                self,
+                "Base de datos",
+                "Esa base de datos ya esta en uso.",
+            )
+            return
+
+        initialize_database(database_path, seed=False)
+        self.app_settings["database_path"] = "" if persist_default else str(database_path)
+        self._save_app_settings()
+        self._set_database_path(database_path)
+        self._refresh_after_database_change()
+        QMessageBox.information(
+            self,
+            "Base de datos",
+            "Base de datos cambiada y guardada.",
+        )
+
+    def _set_database_path(self, database_path: Path) -> None:
+        self.database_path = database_path
+        self.viaje_repository = ViajeRepository(database_path)
+        self.cliente_repository = ClienteRepository(database_path)
+        self.alert_repository = AlertRepository(database_path)
+        self.carga_repository = CargaRepository(database_path)
+        self.lugar_repository = LugarRepository(database_path)
+        self.chofer_repository = ChoferRepository(database_path)
+        self.vehiculo_repository = VehiculoRepository(database_path)
+        self.combustible_repository = VehiculoCombustibleRepository(database_path)
+        self.mantenimiento_repository = VehiculoMantenimientoRepository(database_path)
+        self.peaje_repository = PeajeRepository(database_path)
+        self.tipo_carga_repository = TipoCargaRepository(database_path)
+
+    def _refresh_after_database_change(self) -> None:
+        self._close_empresa_peajes()
+        self._close_mantenimientos()
+        self._close_historial_mantenimientos()
+        self._close_registro_combustible()
+        self._clear_viaje_form()
+        self._refresh_year_filter_options()
+        for title in (
+            "Clientes",
+            "Lugares",
+            "Chofer",
+            "T.Carga",
+            "Vehiculos",
+            "Peajes",
+            "Opciones",
+        ):
+            self._refresh_object_table(title)
+        self._refresh_database_path_label()
+        self._refresh_viaje_form_options()
+        self._refresh_table()
+        self._refresh_metrics()
+        self._refresh_billing_months()
+        self._refresh_print_client_options()
+        self._refresh_print_report()
+        self._refresh_fuel_consumption_table()
+
+    def _refresh_year_filter_options(self) -> None:
+        current_date = QDate.currentDate()
+        years = {
+            year
+            for year in self.viaje_repository.billing_years()
+            if year <= current_date.year()
+        }
+        years.update(range(current_date.year() - 1, current_date.year() + 1))
+        year_options = sorted(years)
+        for combo in (self.billing_year_combo, self.print_year_combo):
+            if combo is None:
+                continue
+            selected_year = int(combo.currentData() or current_date.year())
+            previous_state = combo.blockSignals(True)
+            combo.clear()
+            for year in year_options:
+                combo.addItem(str(year), year)
+            selected_index = combo.findData(selected_year)
+            if selected_index < 0:
+                selected_index = combo.findData(current_date.year())
+            if selected_index >= 0:
+                combo.setCurrentIndex(selected_index)
+            combo.blockSignals(previous_state)
 
 
     def _cliente_rows(self) -> list[tuple[int, list[str]]]:
@@ -1902,14 +2070,16 @@ class MainWindow(QMainWindow):
                     consumo = _format_decimal(item.litros_cargados / km_recorridos * 100)
             previous_km_by_vehiculo[item.vehiculo_id] = item.km_actual_camion
             rows.append(
-                item.id,
-                [
-                    item.vehiculo_etiqueta,
-                    item.fecha_carga,
-                    _format_decimal(item.litros_cargados),
-                    str(item.km_actual_camion),
-                    consumo,
-                ],
+                (
+                    item.id,
+                    [
+                        item.vehiculo_etiqueta,
+                        item.fecha_carga,
+                        _format_decimal(item.litros_cargados),
+                        str(item.km_actual_camion),
+                        consumo,
+                    ],
+                )
             )
         return list(reversed(rows))
 
