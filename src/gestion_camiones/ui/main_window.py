@@ -196,6 +196,13 @@ class UpdateSignals(QObject):
     download_failed = Signal(str)
 
 
+def _anchor_child_window(window: QWidget) -> None:
+    if isinstance(window, QDialog):
+        window.setWindowModality(Qt.WindowModality.WindowModal)
+    if platform.system() == "Darwin":
+        window.setWindowFlag(Qt.WindowType.Sheet, True)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, viaje_repository: ViajeRepository, database_path: Path) -> None:
         super().__init__()
@@ -328,6 +335,7 @@ class MainWindow(QMainWindow):
 
     def _ask_driver_license_due_date(self, alert: AppAlert) -> str | None:
         dialog = QDialog(self)
+        _anchor_child_window(dialog)
         dialog.setWindowTitle("Validar registro")
         layout = QVBoxLayout(dialog)
         layout.setSpacing(12)
@@ -1469,6 +1477,7 @@ class MainWindow(QMainWindow):
 
         preferred_asset = self._preferred_release_asset(release)
         message = QMessageBox(self)
+        _anchor_child_window(message)
         message.setIcon(QMessageBox.Icon.Information)
         message.setWindowTitle("Actualizacion disponible")
         message.setText(f"Hay una version nueva disponible: {release.version}")
@@ -1533,9 +1542,9 @@ class MainWindow(QMainWindow):
             100,
             self,
         )
+        _anchor_child_window(self.update_progress_dialog)
         self.update_progress_dialog.setCancelButton(None)
         self.update_progress_dialog.setWindowTitle("Actualizando")
-        self.update_progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.update_progress_dialog.setMinimumDuration(0)
         self.update_progress_dialog.setValue(0)
 
@@ -1609,6 +1618,7 @@ class MainWindow(QMainWindow):
 
         asset_name = asset.name if isinstance(asset, ReleaseAsset) else package_path.name
         message = QMessageBox(self)
+        _anchor_child_window(message)
         message.setIcon(QMessageBox.Icon.Information)
         message.setWindowTitle("Actualizacion descargada")
         message.setText("La actualizacion se descargo correctamente.")
@@ -2156,6 +2166,7 @@ class MainWindow(QMainWindow):
         enabled_fields = self._enabled_viaje_field_keys(cliente_id)
 
         dialog = QDialog(self)
+        _anchor_child_window(dialog)
         dialog.setWindowTitle("Configurar campos carga")
         layout = QVBoxLayout(dialog)
         layout.setSpacing(12)
@@ -3869,6 +3880,7 @@ class StartupAlertsDialog(QDialog):
         self.validate_callback = validate_callback
         self.current_alert: AppAlert | None = None
 
+        _anchor_child_window(self)
         self.setWindowTitle("Alertas")
         self.setMinimumWidth(520)
 
@@ -3942,6 +3954,7 @@ class RecordDialog(QDialog):
         self.check_groups: dict[str, list[tuple[QCheckBox, object]]] = {}
         self.peaje_selectors: dict[str, QListWidget] = {}
 
+        _anchor_child_window(self)
         self.setWindowTitle(title)
         self.setMinimumWidth(780 if columns > 1 else 420)
 
