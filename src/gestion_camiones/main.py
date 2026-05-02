@@ -38,7 +38,7 @@ def main() -> int:
     app.setStyle(QStyleFactory.create("Fusion"))
 
     database_path = get_database_path()
-    initialize_database(database_path)
+    initialize_database(database_path, seed=False)
 
     window = MainWindow(ViajeRepository(database_path), database_path)
     window.show()

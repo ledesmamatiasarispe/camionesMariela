@@ -337,7 +337,7 @@ WHERE EXISTS (SELECT 1 FROM viajes WHERE id = 3)
 """
 
 
-def initialize_database(database_path: Path, *, seed: bool = True) -> None:
+def initialize_database(database_path: Path, *, seed: bool = False) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
 
     with closing(sqlite3.connect(database_path)) as connection:
