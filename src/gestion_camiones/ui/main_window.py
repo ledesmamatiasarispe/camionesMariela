@@ -2027,8 +2027,10 @@ class MainWindow(QMainWindow):
         self,
         title: str,
         fields: list[dict[str, object]],
+        *,
+        columns: int = 1,
     ) -> dict[str, object] | None:
-        dialog = RecordDialog(self, title, fields)
+        dialog = RecordDialog(self, title, fields, columns=columns)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
 
@@ -2604,6 +2606,7 @@ class MainWindow(QMainWindow):
         values = self._record_values(
             "Editar viaje",
             self._viaje_edit_fields(viaje),
+            columns=2,
         )
         if values is None:
             return
@@ -3082,13 +3085,22 @@ class MainWindow(QMainWindow):
             {
                 "key": "peaje_ids",
                 "label": "Peajes",
-                "type": "checks",
+                "type": "peaje_selector",
                 "value": viaje["peaje_ids"],
-                "options": [
-                    (
-                        f"{item.empresa_nombre} - {item.nombre} - {_format_money(item.costo)}",
-                        item.id,
-                    )
+                "empresas": [("Todas", None)]
+                + [
+                    (item.nombre, item.id)
+                    for item in self.peaje_repository.list_empresas()
+                ],
+                "peajes": [
+                    {
+                        "id": item.id,
+                        "empresa_id": item.empresa_id,
+                        "label": (
+                            f"{item.empresa_nombre} - {item.nombre} - "
+                            f"{_format_money(item.costo)}"
+                        ),
+                    }
                     for item in self.peaje_repository.list_all()
                 ],
                 "required": False,
@@ -3920,22 +3932,33 @@ class RecordDialog(QDialog):
         parent: QWidget,
         title: str,
         fields: list[dict[str, object]],
+        *,
+        columns: int = 1,
     ) -> None:
         super().__init__(parent)
         self.fields = fields
         self.widgets: dict[str, QWidget] = {}
         self.row_labels: dict[str, QWidget] = {}
         self.check_groups: dict[str, list[tuple[QCheckBox, object]]] = {}
+        self.peaje_selectors: dict[str, QListWidget] = {}
 
         self.setWindowTitle(title)
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(780 if columns > 1 else 420)
 
         layout = QVBoxLayout(self)
-        form = QFormLayout()
-        form.setHorizontalSpacing(14)
-        form.setVerticalSpacing(10)
+        forms: list[QFormLayout] = []
+        forms_layout = QHBoxLayout()
+        forms_layout.setSpacing(18)
+        for _column in range(max(1, columns)):
+            form = QFormLayout()
+            form.setHorizontalSpacing(14)
+            form.setVerticalSpacing(10)
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+            forms.append(form)
+            forms_layout.addLayout(form)
 
-        for field in fields:
+        split_at = (len(fields) + len(forms) - 1) // len(forms)
+        for field_index, field in enumerate(fields):
             key = str(field["key"])
             label = str(field["label"])
             field_type = str(field.get("type", "text"))
@@ -3986,11 +4009,88 @@ class RecordDialog(QDialog):
                     checks.append((check, option_value))
                 check_layout.addStretch()
                 self.check_groups[key] = checks
+            elif field_type == "peaje_selector":
+                widget = QWidget()
+                selector_layout = QVBoxLayout(widget)
+                selector_layout.setContentsMargins(0, 0, 0, 0)
+                selector_layout.setSpacing(6)
+
+                combo = QComboBox()
+                for option_label, option_value in field.get("empresas", []):
+                    combo.addItem(str(option_label), option_value)
+
+                peajes = QListWidget()
+                peajes.setFixedHeight(112)
+                all_peajes = list(field.get("peajes", []))
+
+                def checked_peaje_ids(peajes_widget: QListWidget = peajes) -> set[int]:
+                    peaje_ids: set[int] = set()
+                    for row in range(peajes_widget.count()):
+                        item = peajes_widget.item(row)
+                        if item.checkState() == Qt.CheckState.Checked:
+                            peaje_ids.add(int(item.data(Qt.ItemDataRole.UserRole)))
+                    return peaje_ids
+
+                def refresh_peajes(
+                    *_args: object,
+                    combo_widget: QComboBox = combo,
+                    peajes_widget: QListWidget = peajes,
+                    peaje_items: list[object] = all_peajes,
+                ) -> None:
+                    checked_ids = checked_peaje_ids()
+                    empresa_id = combo_widget.currentData()
+                    visible_peajes = [
+                        item
+                        for item in peaje_items
+                        if empresa_id is None or item["empresa_id"] == empresa_id
+                    ]
+                    visible_ids = {int(item["id"]) for item in visible_peajes}
+                    selected_missing_peajes = [
+                        item
+                        for item in peaje_items
+                        if int(item["id"]) in checked_ids
+                        and int(item["id"]) not in visible_ids
+                    ]
+
+                    peajes_widget.clear()
+                    for item in [*visible_peajes, *selected_missing_peajes]:
+                        peaje_item = QListWidgetItem(str(item["label"]))
+                        peaje_item.setFlags(
+                            peaje_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+                        )
+                        peaje_item.setCheckState(
+                            Qt.CheckState.Checked
+                            if int(item["id"]) in checked_ids
+                            else Qt.CheckState.Unchecked
+                        )
+                        peaje_item.setData(Qt.ItemDataRole.UserRole, int(item["id"]))
+                        peajes_widget.addItem(peaje_item)
+
+                selected_values = {int(item) for item in value or ()}
+                for item in all_peajes:
+                    item_id = int(item["id"])
+                    peaje_item = QListWidgetItem(str(item["label"]))
+                    peaje_item.setFlags(
+                        peaje_item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+                    )
+                    peaje_item.setCheckState(
+                        Qt.CheckState.Checked
+                        if item_id in selected_values
+                        else Qt.CheckState.Unchecked
+                    )
+                    peaje_item.setData(Qt.ItemDataRole.UserRole, item_id)
+                    peajes.addItem(peaje_item)
+
+                combo.currentIndexChanged.connect(refresh_peajes)
+                selector_layout.addWidget(combo)
+                selector_layout.addWidget(peajes)
+                self.peaje_selectors[key] = peajes
             else:
                 widget = QLineEdit()
                 widget.setText(str(value or ""))
 
             self.widgets[key] = widget
+            form = forms[min(field_index // split_at, len(forms) - 1)]
             form.addRow(label, widget)
             row_label = form.labelForField(widget)
             if row_label is not None:
@@ -4006,7 +4106,7 @@ class RecordDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
-        layout.addLayout(form)
+        layout.addLayout(forms_layout)
         layout.addWidget(buttons)
 
     def is_field_visible(self, key: str) -> bool:
@@ -4023,6 +4123,13 @@ class RecordDialog(QDialog):
                     option_value
                     for check, option_value in self.check_groups[key]
                     if check.isChecked()
+                )
+            elif key in self.peaje_selectors:
+                peajes = self.peaje_selectors[key]
+                values[key] = tuple(
+                    int(item.data(Qt.ItemDataRole.UserRole))
+                    for row in range(peajes.count())
+                    if (item := peajes.item(row)).checkState() == Qt.CheckState.Checked
                 )
             elif isinstance(widget, QLineEdit):
                 values[key] = widget.text().strip()

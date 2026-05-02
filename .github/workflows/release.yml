@@ -16,10 +16,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: Windows x64
-            os: windows-latest
-            artifact_name: GestionCamiones-Windows-x64.zip
-            pyinstaller_target_arch: ""
           - label: macOS Apple Silicon
             os: macos-15
             artifact_name: GestionCamiones-macOS-AppleSilicon.dmg
