@@ -8,6 +8,7 @@ from threading import Thread
 from PySide6.QtCore import QDate, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -180,6 +181,17 @@ DEFAULT_FONT_SIZES = {
     key: default
     for key, _label, default, _minimum, _maximum, _group in FONT_SIZE_OPTIONS
 }
+
+
+def _allow_keyboard_spinbox_input(widget: QAbstractSpinBox) -> None:
+    widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    widget.setKeyboardTracking(True)
+    widget.setCorrectionMode(QAbstractSpinBox.CorrectionMode.CorrectToNearestValue)
+    line_edit = widget.lineEdit()
+    if line_edit is not None:
+        line_edit.setReadOnly(False)
+        line_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
 
 VIAJE_FORM_FIELDS = (
     ("fecha", "Fecha"),
@@ -497,6 +509,7 @@ class MainWindow(QMainWindow):
         description.setWordWrap(True)
 
         date_input = QDateEdit()
+        _allow_keyboard_spinbox_input(date_input)
         date_input.setCalendarPopup(True)
         date_input.setDisplayFormat("yyyy-MM-dd")
         chofer = self._find_by_id(
@@ -543,6 +556,7 @@ class MainWindow(QMainWindow):
         description.setWordWrap(True)
 
         date_input = QDateEdit()
+        _allow_keyboard_spinbox_input(date_input)
         date_input.setCalendarPopup(True)
         date_input.setDisplayFormat("yyyy-MM-dd")
         mantenimiento = self._find_by_id(
@@ -553,6 +567,7 @@ class MainWindow(QMainWindow):
         default_date = QDate.currentDate().addMonths(int(regularidad_meses))
         date_input.setDate(default_date)
         km_input = QSpinBox()
+        _allow_keyboard_spinbox_input(km_input)
         km_input.setRange(0, 999_999_999)
         km_input.setSingleStep(1000)
         regularidad_km = getattr(mantenimiento, "regularidad_km", 0) or 0
@@ -812,6 +827,7 @@ class MainWindow(QMainWindow):
             form.setVerticalSpacing(10)
 
         fecha = QDateEdit()
+        _allow_keyboard_spinbox_input(fecha)
         fecha.setCalendarPopup(True)
         fecha.setDisplayFormat("yyyy-MM-dd")
         fecha.setDate(QDate.currentDate())
@@ -857,18 +873,21 @@ class MainWindow(QMainWindow):
 
         tarifa = self._money_input()
         fecha_descarga_tarifa = QDateEdit()
+        _allow_keyboard_spinbox_input(fecha_descarga_tarifa)
         fecha_descarga_tarifa.setCalendarPopup(True)
         fecha_descarga_tarifa.setDisplayFormat("yyyy-MM-dd")
         fecha_descarga_tarifa.setDate(QDate.currentDate())
 
         demora = self._money_input()
         fecha_descarga_demora = QDateEdit()
+        _allow_keyboard_spinbox_input(fecha_descarga_demora)
         fecha_descarga_demora.setCalendarPopup(True)
         fecha_descarga_demora.setDisplayFormat("yyyy-MM-dd")
         fecha_descarga_demora.setDate(QDate.currentDate())
 
         vacio = self._money_input()
         fecha_descarga_vacio = QDateEdit()
+        _allow_keyboard_spinbox_input(fecha_descarga_vacio)
         fecha_descarga_vacio.setCalendarPopup(True)
         fecha_descarga_vacio.setDisplayFormat("yyyy-MM-dd")
         fecha_descarga_vacio.setDate(QDate.currentDate())
@@ -1218,7 +1237,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(close_button)
         header_layout.addLayout(controls)
 
-        table = QTableWidget(0, 5)
+        table = QTableWidget(0, 6)
         table.setHorizontalHeaderLabels(
             [
                 "ID",
@@ -1226,6 +1245,7 @@ class MainWindow(QMainWindow):
                 "Fecha carga",
                 "Lts cargados",
                 "Km actual camion",
+                "Consumo lts/100km",
             ]
         )
         table.verticalHeader().setVisible(False)
@@ -1430,6 +1450,7 @@ class MainWindow(QMainWindow):
         top_controls.addWidget(year_card)
 
         from_date = QDateEdit()
+        _allow_keyboard_spinbox_input(from_date)
         from_date.setCalendarPopup(True)
         from_date.setDisplayFormat("yyyy-MM-dd")
         from_date.setDate(QDate(current_date.year(), current_date.month(), 1))
@@ -1440,6 +1461,7 @@ class MainWindow(QMainWindow):
         top_controls.addWidget(from_card)
 
         to_date = QDateEdit()
+        _allow_keyboard_spinbox_input(to_date)
         to_date.setCalendarPopup(True)
         to_date.setDisplayFormat("yyyy-MM-dd")
         to_date.setDate(
@@ -1665,6 +1687,7 @@ class MainWindow(QMainWindow):
                 row_layout.setSpacing(10)
                 label_widget = QLabel(label)
                 input_widget = QSpinBox()
+                _allow_keyboard_spinbox_input(input_widget)
                 input_widget.setRange(minimum, maximum)
                 input_widget.setSingleStep(1)
                 input_widget.setSuffix(" px")
@@ -1860,18 +1883,27 @@ class MainWindow(QMainWindow):
         self,
         vehiculo_id: int | None = None,
     ) -> list[tuple[int, list[str]]]:
-        return [
-            (
+        rows = []
+        previous_km_by_vehiculo: dict[int, int] = {}
+        for item in reversed(self.combustible_repository.list_all(vehiculo_id=vehiculo_id)):
+            previous_km = previous_km_by_vehiculo.get(item.vehiculo_id)
+            consumo = "Sin datos"
+            if previous_km is not None:
+                km_recorridos = item.km_actual_camion - previous_km
+                if km_recorridos > 0:
+                    consumo = _format_decimal(item.litros_cargados / km_recorridos * 100)
+            previous_km_by_vehiculo[item.vehiculo_id] = item.km_actual_camion
+            rows.append(
                 item.id,
                 [
                     item.vehiculo_etiqueta,
                     item.fecha_carga,
                     _format_decimal(item.litros_cargados),
                     str(item.km_actual_camion),
+                    consumo,
                 ],
             )
-            for item in self.combustible_repository.list_all(vehiculo_id=vehiculo_id)
-        ]
+        return list(reversed(rows))
 
     def _peaje_rows(self) -> list[tuple[int, list[str]]]:
         return [
@@ -5026,6 +5058,7 @@ class MainWindow(QMainWindow):
 
     def _money_input(self) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
+        _allow_keyboard_spinbox_input(spin)
         spin.setRange(0, 999_999_999)
         spin.setDecimals(2)
         spin.setSingleStep(1000)
@@ -5034,6 +5067,7 @@ class MainWindow(QMainWindow):
 
     def _decimal_input(self) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()
+        _allow_keyboard_spinbox_input(spin)
         spin.setRange(0, 999_999_999)
         spin.setDecimals(2)
         spin.setSingleStep(10)
@@ -5238,12 +5272,14 @@ class RecordDialog(QDialog):
 
             if field_type == "date":
                 widget = QDateEdit()
+                _allow_keyboard_spinbox_input(widget)
                 widget.setCalendarPopup(True)
                 widget.setDisplayFormat("yyyy-MM-dd")
                 date = QDate.fromString(str(value), "yyyy-MM-dd")
                 widget.setDate(date if date.isValid() else QDate.currentDate())
             elif field_type == "money":
                 widget = QDoubleSpinBox()
+                _allow_keyboard_spinbox_input(widget)
                 widget.setRange(0, 999_999_999)
                 widget.setDecimals(2)
                 widget.setSingleStep(1000)
@@ -5251,12 +5287,14 @@ class RecordDialog(QDialog):
                 widget.setValue(float(value or 0))
             elif field_type == "decimal":
                 widget = QDoubleSpinBox()
+                _allow_keyboard_spinbox_input(widget)
                 widget.setRange(0, 999_999_999)
                 widget.setDecimals(2)
                 widget.setSingleStep(10)
                 widget.setValue(float(value or 0))
             elif field_type == "integer":
                 widget = QSpinBox()
+                _allow_keyboard_spinbox_input(widget)
                 widget.setRange(0, 999_999_999)
                 widget.setSingleStep(int(field.get("step", 1000)))
                 widget.setValue(int(value or 0))
