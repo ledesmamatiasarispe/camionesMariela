@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QListView,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
@@ -193,6 +194,14 @@ def _allow_keyboard_spinbox_input(widget: QAbstractSpinBox) -> None:
         line_edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
 
+def _configure_combo_popup(widget: QComboBox) -> None:
+    widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    widget.setMaxVisibleItems(18)
+    widget.setView(QListView(widget))
+    if widget.lineEdit() is not None:
+        widget.lineEdit().setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+
 VIAJE_FORM_FIELDS = (
     ("fecha", "Fecha"),
     ("cliente", "Cliente"),
@@ -232,8 +241,7 @@ class UpdateSignals(QObject):
 def _anchor_child_window(window: QWidget) -> None:
     if isinstance(window, QDialog):
         window.setWindowModality(Qt.WindowModality.WindowModal)
-    if platform.system() == "Darwin":
-        window.setWindowFlag(Qt.WindowType.Sheet, True)
+        window.setWindowFlag(Qt.WindowType.Dialog, True)
 
 
 class MainWindow(QMainWindow):
@@ -2749,6 +2757,7 @@ class MainWindow(QMainWindow):
 
         current_date = QDate.currentDate()
         month_combo = QComboBox()
+        _configure_combo_popup(month_combo)
         self.billing_month_combo = month_combo
 
         years = {
@@ -4925,6 +4934,7 @@ class MainWindow(QMainWindow):
 
     def _build_combo(self, items: list[tuple[str, object]]) -> QComboBox:
         combo = QComboBox()
+        _configure_combo_popup(combo)
         for label, value in items:
             combo.addItem(label, value)
         return combo
@@ -5241,11 +5251,13 @@ class RecordDialog(QDialog):
         self.row_labels: dict[str, QWidget] = {}
         self.check_groups: dict[str, list[tuple[QCheckBox, object]]] = {}
         self.peaje_selectors: dict[str, QListWidget] = {}
+        self.first_focus_widget: QWidget | None = None
         self._ready_to_show = False
 
         _anchor_child_window(self)
-        self.setUpdatesEnabled(False)
-        self.setWindowOpacity(0)
+        if platform.system() != "Darwin":
+            self.setUpdatesEnabled(False)
+            self.setWindowOpacity(0)
         self.setWindowTitle(title)
         self.setMinimumSize(780 if columns > 1 else 420, 260)
         self.setSizeGripEnabled(True)
@@ -5300,6 +5312,7 @@ class RecordDialog(QDialog):
                 widget.setValue(int(value or 0))
             elif field_type == "combo":
                 widget = QComboBox()
+                _configure_combo_popup(widget)
                 for option_label, option_value in field.get("options", []):
                     widget.addItem(str(option_label), option_value)
                 selected = field.get("value")
@@ -5308,6 +5321,7 @@ class RecordDialog(QDialog):
                     widget.setCurrentIndex(index)
             elif field_type == "multiline":
                 widget = QTextEdit()
+                widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
                 widget.setMinimumHeight(84)
                 widget.setPlainText(str(value or ""))
             elif field_type == "checks":
@@ -5331,6 +5345,7 @@ class RecordDialog(QDialog):
                 selector_layout.setSpacing(6)
 
                 combo = QComboBox()
+                _configure_combo_popup(combo)
                 for option_label, option_value in field.get("empresas", []):
                     combo.addItem(str(option_label), option_value)
 
@@ -5402,9 +5417,12 @@ class RecordDialog(QDialog):
                 self.peaje_selectors[key] = peajes
             else:
                 widget = QLineEdit()
+                widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
                 widget.setText(str(value or ""))
 
             self.widgets[key] = widget
+            if self.first_focus_widget is None and self._can_focus_field(widget):
+                self.first_focus_widget = widget
             form = forms[min(field_index // split_at, len(forms) - 1)]
             form.addRow(label, widget)
             row_label = form.labelForField(widget)
@@ -5445,8 +5463,38 @@ class RecordDialog(QDialog):
             self.resize(*saved_size)
         else:
             self.adjustSize()
-        self.setUpdatesEnabled(True)
-        self.setWindowOpacity(1)
+        if platform.system() != "Darwin":
+            self.setUpdatesEnabled(True)
+            self.setWindowOpacity(1)
+        self.raise_()
+        self.activateWindow()
+        QTimer.singleShot(0, self._focus_first_field)
+
+    def _can_focus_field(self, widget: QWidget) -> bool:
+        if isinstance(widget, QAbstractSpinBox | QComboBox | QLineEdit | QTextEdit):
+            return True
+        return False
+
+    def _focus_first_field(self) -> None:
+        widget = self.first_focus_widget
+        if widget is None:
+            return
+        if not widget.isVisible():
+            for candidate in self.widgets.values():
+                if self._can_focus_field(candidate) and candidate.isVisible():
+                    widget = candidate
+                    break
+        if isinstance(widget, QAbstractSpinBox):
+            widget.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
+            line_edit = widget.lineEdit()
+            if line_edit is not None:
+                line_edit.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
+                line_edit.selectAll()
+        elif isinstance(widget, QLineEdit):
+            widget.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
+            widget.selectAll()
+        else:
+            widget.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
 
     def _saved_size(self) -> tuple[int, int] | None:
         if hasattr(self.settings_owner, "_dialog_size"):
