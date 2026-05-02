@@ -3063,7 +3063,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self.table = QTableWidget(0, 23)
+        self.table = QTableWidget(0, 24)
         self.table.setHorizontalHeaderLabels(
             [
                 "ID",
@@ -3085,13 +3085,14 @@ class MainWindow(QMainWindow):
                 "F.Desc demora",
                 "Vacio $",
                 "F.Desc vacio",
+                "Lugar descarga vacio",
                 "Gas oil (lts)",
                 "Peajes $",
                 "Costo total $",
                 "Estado",
             ]
         )
-        self.table.setColumnHidden(22, True)
+        self.table.setColumnHidden(23, True)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
@@ -3144,6 +3145,7 @@ class MainWindow(QMainWindow):
             viaje.fecha_descarga_demora,
             _format_money(viaje.vacio),
             viaje.fecha_descarga_vacio,
+            viaje.lugar_descarga_vacio,
             _format_decimal(viaje.gas_oil_lts),
             _format_money(viaje.peajes),
             _format_money(viaje.costo_total),

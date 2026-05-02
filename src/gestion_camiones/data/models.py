@@ -189,6 +189,7 @@ class ViajeResumen:
     fecha_descarga_demora: str
     vacio: float
     fecha_descarga_vacio: str
+    lugar_descarga_vacio: str
     gas_oil_lts: float
     peajes: float
     estado: str

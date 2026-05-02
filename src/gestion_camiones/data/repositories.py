@@ -56,6 +56,7 @@ class ViajeRepository:
                 COALESCE(viajes.fecha_descarga_demora, '') AS fecha_descarga_demora,
                 viajes.vacio,
                 COALESCE(viajes.fecha_descarga_vacio, '') AS fecha_descarga_vacio,
+                COALESCE(lugar_descarga_vacio.nombre, '') AS lugar_descarga_vacio,
                 COALESCE(viajes.gas_oil_lts, 0) AS gas_oil_lts,
                 COALESCE(
                     (
@@ -73,6 +74,8 @@ class ViajeRepository:
             JOIN cargas ON cargas.id = viajes.carga_id
             JOIN lugares AS lugar_carga ON lugar_carga.id = viajes.lugar_carga_id
             JOIN lugares AS lugar_descarga ON lugar_descarga.id = viajes.lugar_descarga_id
+            LEFT JOIN lugares AS lugar_descarga_vacio
+                ON lugar_descarga_vacio.id = viajes.lugar_descarga_vacio_id
             JOIN choferes ON choferes.id = viajes.chofer_id
             JOIN vehiculos AS camion
                 ON camion.id = viajes.camion_id AND camion.tipo = 'CAMION'
@@ -97,6 +100,9 @@ class ViajeRepository:
                    OR lugar_descarga.nombre LIKE ?
                    OR lugar_descarga.direccion LIKE ?
                    OR lugar_descarga.observaciones LIKE ?
+                   OR lugar_descarga_vacio.nombre LIKE ?
+                   OR lugar_descarga_vacio.direccion LIKE ?
+                   OR lugar_descarga_vacio.observaciones LIKE ?
                    OR choferes.dni LIKE ?
                    OR choferes.nombre LIKE ?
                    OR choferes.apellido LIKE ?
@@ -118,6 +124,9 @@ class ViajeRepository:
             """
             pattern = f"%{search.strip()}%"
             params = (
+                pattern,
+                pattern,
+                pattern,
                 pattern,
                 pattern,
                 pattern,

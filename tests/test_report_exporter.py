@@ -36,6 +36,7 @@ def _sample_viaje() -> ViajeResumen:
         fecha_descarga_demora="2026-04-16",
         vacio=2500,
         fecha_descarga_vacio="2026-04-16",
+        lugar_descarga_vacio="Taller",
         gas_oil_lts=320.5,
         peajes=1500,
         estado="Programado",
