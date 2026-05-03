@@ -164,6 +164,55 @@ class ReportExporterTests(unittest.TestCase):
 
             self.assertEqual(worksheet["F17"].value, "imo")
 
+    def test_export_ricco_demora_column_sums_delay_and_empty_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            template_path = Path(temp_dir) / "RICCO.xlsx"
+            output_path = Path(temp_dir) / "salida.xlsx"
+            self._build_ricco_template(template_path)
+
+            base = _sample_viaje()
+            viajes = [
+                ViajeResumen(
+                    **{
+                        **base.__dict__,
+                        "id": 1,
+                        "demora": 4000,
+                        "vacio": 0,
+                    }
+                ),
+                ViajeResumen(
+                    **{
+                        **base.__dict__,
+                        "id": 2,
+                        "demora": 0,
+                        "vacio": 3000,
+                    }
+                ),
+                ViajeResumen(
+                    **{
+                        **base.__dict__,
+                        "id": 3,
+                        "demora": 4000,
+                        "vacio": 3000,
+                    }
+                ),
+            ]
+            export_ricco_report_excel(
+                template_path,
+                output_path,
+                "2026-04-01",
+                "2026-04-30",
+                viajes,
+                company_name="Mi Empresa SRL",
+            )
+
+            workbook = load_workbook(output_path)
+            worksheet = workbook.active
+
+            self.assertEqual(worksheet["M17"].value, 4000)
+            self.assertEqual(worksheet["M18"].value, 3000)
+            self.assertEqual(worksheet["M19"].value, 7000)
+
     def test_build_ricco_export_filename(self) -> None:
         filename = build_ricco_export_filename(
             "2026-04-01",

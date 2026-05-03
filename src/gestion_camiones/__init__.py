@@ -1,3 +1,3 @@
 """Sistema de gestion de camiones."""
 
-__version__ = "0.1.30"
+__version__ = "0.1.31"

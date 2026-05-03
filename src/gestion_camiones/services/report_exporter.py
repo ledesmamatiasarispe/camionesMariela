@@ -200,6 +200,7 @@ def export_ricco_report_excel(
     worksheet["H12"] = _excel_date(period_end)
 
     for row_index, viaje in enumerate(viajes, start=RICCO_DATA_START_ROW):
+        demora_ricco = _ricco_demora_amount(viaje)
         worksheet[f"B{row_index}"] = _excel_date(viaje.fecha)
         worksheet[f"C{row_index}"] = viaje.carta_porte or None
         worksheet[f"D{row_index}"] = viaje.carga or None
@@ -211,7 +212,7 @@ def export_ricco_report_excel(
         worksheet[f"J{row_index}"] = _camion_patente(viaje.camion) or None
         worksheet[f"K{row_index}"] = viaje.tarifa
         worksheet[f"L{row_index}"] = _excel_date(viaje.fecha_descarga_vacio)
-        worksheet[f"M{row_index}"] = viaje.demora + viaje.vacio
+        worksheet[f"M{row_index}"] = demora_ricco or None
         worksheet[f"N{row_index}"] = viaje.costo_total
         worksheet[f"O{row_index}"] = 0
         worksheet[f"P{row_index}"] = viaje.gas_oil_lts
@@ -346,6 +347,10 @@ def _ricco_tipo_carga(tipo_carga: str) -> str:
     if "peligrosa" in normalized or normalized == "imo":
         return "imo"
     return "gral"
+
+
+def _ricco_demora_amount(viaje: ViajeResumen) -> float:
+    return float(viaje.demora or 0) + float(viaje.vacio or 0)
 
 
 def _camion_patente(camion: str) -> str:
