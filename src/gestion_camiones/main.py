@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import traceback
+from importlib.resources import files
 from pathlib import Path
 
 from gestion_camiones import __version__
@@ -25,6 +26,7 @@ def main() -> int:
         print(__version__)
         return 0
 
+    from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication, QStyleFactory
 
     from gestion_camiones.data.paths import get_database_path
@@ -36,6 +38,11 @@ def main() -> int:
     app.setApplicationName("Gestion Camiones")
     app.setOrganizationName("Jose Romero e hijos SRL")
     app.setStyle(QStyleFactory.create("Fusion"))
+    try:
+        icon_path = files("gestion_camiones.assets").joinpath("app_icon.png")
+        app.setWindowIcon(QIcon(str(icon_path)))
+    except Exception:
+        pass
 
     database_path = get_database_path()
     initialize_database(database_path, seed=False)

@@ -23,7 +23,22 @@ datas += [
         str(project_root / "src" / "gestion_camiones" / "assets" / "RICCO.xlsx"),
         "gestion_camiones/assets",
     ),
+    (
+        str(project_root / "src" / "gestion_camiones" / "assets" / "app_icon.png"),
+        "gestion_camiones/assets",
+    ),
+    (
+        str(project_root / "src" / "gestion_camiones" / "assets" / "app_icon.ico"),
+        "gestion_camiones/assets",
+    ),
+    (
+        str(project_root / "src" / "gestion_camiones" / "assets" / "app_icon.icns"),
+        "gestion_camiones/assets",
+    ),
 ]
+icon_path = project_root / "src" / "gestion_camiones" / "assets" / (
+    "app_icon.icns" if sys.platform == "darwin" else "app_icon.ico"
+)
 
 a = Analysis(
     [str(project_root / "src" / "gestion_camiones" / "main.py")],
@@ -55,6 +70,7 @@ exe = EXE(
     target_arch=os.environ.get("PYINSTALLER_TARGET_ARCH"),
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(icon_path),
 )
 
 if sys.platform == "darwin":
@@ -70,7 +86,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="Gestion Camiones.app",
-        icon=None,
+        icon=str(icon_path),
         bundle_identifier="com.romero.gestioncamiones",
         version=app_version,
         info_plist={
