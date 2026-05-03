@@ -2,11 +2,7 @@
 setlocal
 
 cd /d "%~dp0"
-
-if exist "dist\GestionCamiones\GestionCamiones.exe" (
-    start "" "dist\GestionCamiones\GestionCamiones.exe"
-    exit /b 0
-)
+set "PYTHONPATH=%CD%\src"
 
 if exist ".venv\Scripts\gestion-camiones.exe" (
     start "" ".venv\Scripts\gestion-camiones.exe"
@@ -23,10 +19,15 @@ if exist ".venv\Scripts\python.exe" (
     exit /b 0
 )
 
+if exist "dist\GestionCamiones\GestionCamiones.exe" (
+    start "" "dist\GestionCamiones\GestionCamiones.exe"
+    exit /b 0
+)
+
 echo No se encontro un ejecutable para abrir la app.
 echo Opciones esperadas:
-echo - dist\GestionCamiones\GestionCamiones.exe
 echo - .venv\Scripts\gestion-camiones.exe
 echo - .venv\Scripts\pythonw.exe
+echo - dist\GestionCamiones\GestionCamiones.exe
 pause
 exit /b 1

@@ -160,9 +160,11 @@ CREATE TABLE IF NOT EXISTS viajes (
     tipo_carga TEXT NOT NULL DEFAULT 'GENERAL',
     tarifa NUMERIC NOT NULL DEFAULT 0,
     fecha_descarga_tarifa TEXT,
-    demora NUMERIC NOT NULL DEFAULT 0,
+    hay_demora INTEGER NOT NULL DEFAULT 0,
+    demora NUMERIC,
     fecha_descarga_demora TEXT,
-    vacio NUMERIC NOT NULL DEFAULT 0,
+    descarga_vacio INTEGER NOT NULL DEFAULT 0,
+    vacio NUMERIC,
     fecha_descarga_vacio TEXT,
     gas_oil_lts NUMERIC NOT NULL DEFAULT 0,
     peajes NUMERIC NOT NULL DEFAULT 0,
@@ -358,8 +360,10 @@ INSERT OR IGNORE INTO viajes (
     tipo_carga,
     tarifa,
     fecha_descarga_tarifa,
+    hay_demora,
     demora,
     fecha_descarga_demora,
+    descarga_vacio,
     vacio,
     fecha_descarga_vacio,
     peajes,
@@ -368,15 +372,15 @@ INSERT OR IGNORE INTO viajes (
 ) VALUES
     (
         1, '2026-04-30', 1, 1, 2, 1, 1, 1, 1001, 'GENERAL', 120000, '2026-04-30',
-        0, NULL, 0, NULL, 15000, 'Control pendiente', 'Programado'
+        0, NULL, NULL, 0, NULL, NULL, 15000, 'Control pendiente', 'Programado'
     ),
     (
         2, '2026-04-30', 2, 2, 1, 3, 2, 2, 1002, 'PELIGROSA', 180000, '2026-04-30',
-        25000, NULL, 10000, '2026-04-30', 22000, 'Demora informada', 'En viaje'
+        1, 25000, NULL, 1, 10000, '2026-04-30', 22000, 'Demora informada', 'En viaje'
     ),
     (
         3, '2026-05-01', 3, 3, 4, 1, 3, 3, 1003, 'GENERAL', 95000, '2026-05-01',
-        0, NULL, 0, NULL, 9000, '', 'Finalizado'
+        0, NULL, NULL, 0, NULL, NULL, 9000, '', 'Finalizado'
     );
 
 INSERT OR IGNORE INTO viaje_peajes (id, viaje_id, peaje_id, costo)
@@ -411,6 +415,7 @@ def initialize_database(database_path: Path, *, seed: bool = False) -> None:
         _migrate_viaje_carta_porte(connection)
         _migrate_viaje_fechas_descarga(connection)
         _migrate_viaje_lugar_descarga_vacio(connection)
+        _migrate_viaje_demora_vacio_flags(connection)
         _migrate_viaje_gas_oil_lts(connection)
         _migrate_tipo_carga(connection)
         _migrate_tipos_carga(connection)
@@ -777,6 +782,11 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
         "fecha_descarga_vacio" if "fecha_descarga_vacio" in columns else "NULL"
     )
     fecha = "fecha" if "fecha" in columns else "''"
+    carta_porte = "carta_porte" if "carta_porte" in columns else "''"
+    lugar_descarga_vacio_id = (
+        "lugar_descarga_vacio_id" if "lugar_descarga_vacio_id" in columns else "NULL"
+    )
+    gas_oil_lts = "gas_oil_lts" if "gas_oil_lts" in columns else "0"
 
     connection.execute("PRAGMA foreign_keys = OFF")
     connection.execute("DROP TABLE IF EXISTS viaje_peajes")
@@ -787,19 +797,24 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY,
             fecha TEXT NOT NULL DEFAULT '',
             cliente_id INTEGER NOT NULL,
+            carta_porte TEXT NOT NULL DEFAULT '',
             carga_id INTEGER NOT NULL,
             lugar_carga_id INTEGER NOT NULL,
             lugar_descarga_id INTEGER NOT NULL,
+            lugar_descarga_vacio_id INTEGER,
             chofer_id INTEGER NOT NULL,
             camion_id INTEGER NOT NULL,
             semi_id INTEGER,
             tipo_carga TEXT NOT NULL DEFAULT 'GENERAL',
             tarifa NUMERIC NOT NULL DEFAULT 0,
             fecha_descarga_tarifa TEXT,
-            demora NUMERIC NOT NULL DEFAULT 0,
+            hay_demora INTEGER NOT NULL DEFAULT 0,
+            demora NUMERIC,
             fecha_descarga_demora TEXT,
-            vacio NUMERIC NOT NULL DEFAULT 0,
+            descarga_vacio INTEGER NOT NULL DEFAULT 0,
+            vacio NUMERIC,
             fecha_descarga_vacio TEXT,
+            gas_oil_lts NUMERIC NOT NULL DEFAULT 0,
             peajes NUMERIC NOT NULL DEFAULT 0,
             observaciones TEXT,
             estado TEXT NOT NULL DEFAULT 'Programado',
@@ -809,6 +824,7 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             FOREIGN KEY (carga_id) REFERENCES cargas(id),
             FOREIGN KEY (lugar_carga_id) REFERENCES lugares(id),
             FOREIGN KEY (lugar_descarga_id) REFERENCES lugares(id),
+            FOREIGN KEY (lugar_descarga_vacio_id) REFERENCES lugares(id),
             FOREIGN KEY (chofer_id) REFERENCES choferes(id),
             FOREIGN KEY (camion_id) REFERENCES vehiculos(id),
             FOREIGN KEY (semi_id) REFERENCES vehiculos(id)
@@ -821,19 +837,24 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             id,
             fecha,
             cliente_id,
+            carta_porte,
             carga_id,
             lugar_carga_id,
             lugar_descarga_id,
+            lugar_descarga_vacio_id,
             chofer_id,
             camion_id,
             semi_id,
             tipo_carga,
             tarifa,
             fecha_descarga_tarifa,
+            hay_demora,
             demora,
             fecha_descarga_demora,
+            descarga_vacio,
             vacio,
             fecha_descarga_vacio,
+            gas_oil_lts,
             peajes,
             observaciones,
             estado,
@@ -844,9 +865,11 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             id,
             {fecha},
             cliente_id,
+            {carta_porte},
             carga_id,
             lugar_carga_id,
             lugar_descarga_id,
+            {lugar_descarga_vacio_id},
             chofer_id,
             camion_id,
             CASE WHEN semi_id IS NULL THEN NULL ELSE semi_id + 1000 END,
@@ -857,10 +880,23 @@ def _migrate_viajes_to_vehiculos(connection: sqlite3.Connection) -> None:
             END,
             tarifa,
             {fecha_descarga_tarifa},
+            CASE
+                WHEN COALESCE(demora, 0) != 0
+                  OR COALESCE(NULLIF({fecha_descarga_demora}, ''), '') != ''
+                THEN 1
+                ELSE 0
+            END,
             demora,
             {fecha_descarga_demora},
+            CASE
+                WHEN COALESCE(vacio, 0) != 0
+                  OR COALESCE(NULLIF({fecha_descarga_vacio}, ''), '') != ''
+                THEN 1
+                ELSE 0
+            END,
             vacio,
             {fecha_descarga_vacio},
+            COALESCE({gas_oil_lts}, 0),
             peajes,
             observaciones,
             estado,
@@ -947,6 +983,186 @@ def _migrate_viaje_lugar_descarga_vacio(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE viajes ADD COLUMN lugar_descarga_vacio_id INTEGER")
 
 
+def _migrate_viaje_demora_vacio_flags(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "viajes"):
+        return
+
+    column_rows = connection.execute("PRAGMA table_info(viajes)").fetchall()
+    columns = {row[1] for row in column_rows}
+    not_null_columns = {row[1] for row in column_rows if row[3]}
+    hay_demora_expr = "hay_demora" if "hay_demora" in columns else "0"
+    descarga_vacio_expr = "descarga_vacio" if "descarga_vacio" in columns else "0"
+    if (
+        "hay_demora" in columns
+        and "descarga_vacio" in columns
+        and "demora" not in not_null_columns
+        and "vacio" not in not_null_columns
+    ):
+        return
+
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute("DROP TABLE IF EXISTS viaje_peajes_demora_vacio_legacy")
+    connection.execute(
+        """
+        CREATE TEMP TABLE viaje_peajes_demora_vacio_legacy AS
+        SELECT viaje_id, peaje_id, COALESCE(costo, 0) AS costo, creado_en
+        FROM viaje_peajes
+        """
+    )
+    connection.execute("DROP TABLE IF EXISTS viaje_peajes")
+    connection.execute("ALTER TABLE viajes RENAME TO viajes_demora_vacio_legacy")
+    connection.execute(
+        """
+        CREATE TABLE viajes (
+            id INTEGER PRIMARY KEY,
+            fecha TEXT NOT NULL DEFAULT '',
+            cliente_id INTEGER NOT NULL,
+            carta_porte TEXT NOT NULL DEFAULT '',
+            carga_id INTEGER NOT NULL,
+            lugar_carga_id INTEGER NOT NULL,
+            lugar_descarga_id INTEGER NOT NULL,
+            lugar_descarga_vacio_id INTEGER,
+            chofer_id INTEGER NOT NULL,
+            camion_id INTEGER NOT NULL,
+            semi_id INTEGER,
+            tipo_carga TEXT NOT NULL DEFAULT 'GENERAL',
+            tarifa NUMERIC NOT NULL DEFAULT 0,
+            fecha_descarga_tarifa TEXT,
+            hay_demora INTEGER NOT NULL DEFAULT 0,
+            demora NUMERIC,
+            fecha_descarga_demora TEXT,
+            descarga_vacio INTEGER NOT NULL DEFAULT 0,
+            vacio NUMERIC,
+            fecha_descarga_vacio TEXT,
+            gas_oil_lts NUMERIC NOT NULL DEFAULT 0,
+            peajes NUMERIC NOT NULL DEFAULT 0,
+            observaciones TEXT,
+            estado TEXT NOT NULL DEFAULT 'Programado',
+            creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (cliente_id) REFERENCES clientes(id),
+            FOREIGN KEY (carga_id) REFERENCES cargas(id),
+            FOREIGN KEY (lugar_carga_id) REFERENCES lugares(id),
+            FOREIGN KEY (lugar_descarga_id) REFERENCES lugares(id),
+            FOREIGN KEY (lugar_descarga_vacio_id) REFERENCES lugares(id),
+            FOREIGN KEY (chofer_id) REFERENCES choferes(id),
+            FOREIGN KEY (camion_id) REFERENCES vehiculos(id),
+            FOREIGN KEY (semi_id) REFERENCES vehiculos(id)
+        )
+        """
+    )
+    connection.execute(
+        f"""
+        INSERT INTO viajes (
+            id,
+            fecha,
+            cliente_id,
+            carta_porte,
+            carga_id,
+            lugar_carga_id,
+            lugar_descarga_id,
+            lugar_descarga_vacio_id,
+            chofer_id,
+            camion_id,
+            semi_id,
+            tipo_carga,
+            tarifa,
+            fecha_descarga_tarifa,
+            hay_demora,
+            demora,
+            fecha_descarga_demora,
+            descarga_vacio,
+            vacio,
+            fecha_descarga_vacio,
+            gas_oil_lts,
+            peajes,
+            observaciones,
+            estado,
+            creado_en,
+            actualizado_en
+        )
+        SELECT
+            id,
+            COALESCE(fecha, ''),
+            cliente_id,
+            COALESCE(carta_porte, ''),
+            carga_id,
+            lugar_carga_id,
+            lugar_descarga_id,
+            lugar_descarga_vacio_id,
+            chofer_id,
+            camion_id,
+            semi_id,
+            COALESCE(tipo_carga, 'GENERAL'),
+            COALESCE(tarifa, 0),
+            NULLIF(fecha_descarga_tarifa, ''),
+            CASE
+                WHEN COALESCE({hay_demora_expr}, 0) = 1
+                  OR COALESCE(demora, 0) != 0
+                  OR COALESCE(NULLIF(fecha_descarga_demora, ''), '') != ''
+                THEN 1
+                ELSE 0
+            END,
+            CASE
+                WHEN COALESCE({hay_demora_expr}, 0) = 1
+                  OR COALESCE(demora, 0) != 0
+                  OR COALESCE(NULLIF(fecha_descarga_demora, ''), '') != ''
+                THEN demora
+                ELSE NULL
+            END,
+            CASE
+                WHEN COALESCE({hay_demora_expr}, 0) = 1
+                  OR COALESCE(demora, 0) != 0
+                  OR COALESCE(NULLIF(fecha_descarga_demora, ''), '') != ''
+                THEN NULLIF(fecha_descarga_demora, '')
+                ELSE NULL
+            END,
+            CASE
+                WHEN COALESCE({descarga_vacio_expr}, 0) = 1
+                  OR COALESCE(vacio, 0) != 0
+                  OR COALESCE(NULLIF(fecha_descarga_vacio, ''), '') != ''
+                  OR lugar_descarga_vacio_id IS NOT NULL
+                THEN 1
+                ELSE 0
+            END,
+            CASE
+                WHEN COALESCE({descarga_vacio_expr}, 0) = 1
+                  OR COALESCE(vacio, 0) != 0
+                  OR COALESCE(NULLIF(fecha_descarga_vacio, ''), '') != ''
+                  OR lugar_descarga_vacio_id IS NOT NULL
+                THEN vacio
+                ELSE NULL
+            END,
+            CASE
+                WHEN COALESCE({descarga_vacio_expr}, 0) = 1
+                  OR COALESCE(vacio, 0) != 0
+                  OR COALESCE(NULLIF(fecha_descarga_vacio, ''), '') != ''
+                  OR lugar_descarga_vacio_id IS NOT NULL
+                THEN NULLIF(fecha_descarga_vacio, '')
+                ELSE NULL
+            END,
+            COALESCE(gas_oil_lts, 0),
+            COALESCE(peajes, 0),
+            observaciones,
+            COALESCE(estado, 'Programado'),
+            creado_en,
+            actualizado_en
+        FROM viajes_demora_vacio_legacy
+        """
+    )
+    connection.execute("DROP TABLE viajes_demora_vacio_legacy")
+    _create_viaje_peajes_table(connection)
+    connection.execute(
+        """
+        INSERT INTO viaje_peajes (viaje_id, peaje_id, costo, creado_en)
+        SELECT viaje_id, peaje_id, costo, creado_en
+        FROM viaje_peajes_demora_vacio_legacy
+        """
+    )
+    connection.execute("DROP TABLE viaje_peajes_demora_vacio_legacy")
+    connection.execute("PRAGMA foreign_keys = ON")
+
+
 def _migrate_viaje_gas_oil_lts(connection: sqlite3.Connection) -> None:
     if not _table_exists(connection, "viajes"):
         return
@@ -1026,19 +1242,24 @@ def _migrate_viajes_tipo_carga_dynamic(connection: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY,
             fecha TEXT NOT NULL DEFAULT '',
             cliente_id INTEGER NOT NULL,
+            carta_porte TEXT NOT NULL DEFAULT '',
             carga_id INTEGER NOT NULL,
             lugar_carga_id INTEGER NOT NULL,
             lugar_descarga_id INTEGER NOT NULL,
+            lugar_descarga_vacio_id INTEGER,
             chofer_id INTEGER NOT NULL,
             camion_id INTEGER NOT NULL,
             semi_id INTEGER,
             tipo_carga TEXT NOT NULL DEFAULT 'GENERAL',
             tarifa NUMERIC NOT NULL DEFAULT 0,
             fecha_descarga_tarifa TEXT,
-            demora NUMERIC NOT NULL DEFAULT 0,
+            hay_demora INTEGER NOT NULL DEFAULT 0,
+            demora NUMERIC,
             fecha_descarga_demora TEXT,
-            vacio NUMERIC NOT NULL DEFAULT 0,
+            descarga_vacio INTEGER NOT NULL DEFAULT 0,
+            vacio NUMERIC,
             fecha_descarga_vacio TEXT,
+            gas_oil_lts NUMERIC NOT NULL DEFAULT 0,
             peajes NUMERIC NOT NULL DEFAULT 0,
             observaciones TEXT,
             estado TEXT NOT NULL DEFAULT 'Programado',
@@ -1048,6 +1269,7 @@ def _migrate_viajes_tipo_carga_dynamic(connection: sqlite3.Connection) -> None:
             FOREIGN KEY (carga_id) REFERENCES cargas(id),
             FOREIGN KEY (lugar_carga_id) REFERENCES lugares(id),
             FOREIGN KEY (lugar_descarga_id) REFERENCES lugares(id),
+            FOREIGN KEY (lugar_descarga_vacio_id) REFERENCES lugares(id),
             FOREIGN KEY (chofer_id) REFERENCES choferes(id),
             FOREIGN KEY (camion_id) REFERENCES vehiculos(id),
             FOREIGN KEY (semi_id) REFERENCES vehiculos(id)
@@ -1060,19 +1282,24 @@ def _migrate_viajes_tipo_carga_dynamic(connection: sqlite3.Connection) -> None:
             id,
             fecha,
             cliente_id,
+            carta_porte,
             carga_id,
             lugar_carga_id,
             lugar_descarga_id,
+            lugar_descarga_vacio_id,
             chofer_id,
             camion_id,
             semi_id,
             tipo_carga,
             tarifa,
             fecha_descarga_tarifa,
+            hay_demora,
             demora,
             fecha_descarga_demora,
+            descarga_vacio,
             vacio,
             fecha_descarga_vacio,
+            gas_oil_lts,
             peajes,
             observaciones,
             estado,
@@ -1083,19 +1310,24 @@ def _migrate_viajes_tipo_carga_dynamic(connection: sqlite3.Connection) -> None:
             id,
             fecha,
             cliente_id,
+            COALESCE(carta_porte, ''),
             carga_id,
             lugar_carga_id,
             lugar_descarga_id,
+            lugar_descarga_vacio_id,
             chofer_id,
             camion_id,
             semi_id,
             tipo_carga,
             tarifa,
             fecha_descarga_tarifa,
+            COALESCE(hay_demora, 0),
             demora,
             fecha_descarga_demora,
+            COALESCE(descarga_vacio, 0),
             vacio,
             fecha_descarga_vacio,
+            COALESCE(gas_oil_lts, 0),
             peajes,
             observaciones,
             estado,

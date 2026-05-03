@@ -185,8 +185,10 @@ class ViajeResumen:
     semi: str
     tarifa: float
     fecha_descarga_tarifa: str
+    hay_demora: bool
     demora: float
     fecha_descarga_demora: str
+    descarga_vacio: bool
     vacio: float
     fecha_descarga_vacio: str
     lugar_descarga_vacio: str
@@ -216,9 +218,11 @@ class ViajeCreate:
     semi_id: int | None
     tarifa: float
     fecha_descarga_tarifa: str
-    demora: float
-    fecha_descarga_demora: str
-    vacio: float
-    fecha_descarga_vacio: str
+    hay_demora: bool
+    demora: float | None
+    fecha_descarga_demora: str | None
+    descarga_vacio: bool
+    vacio: float | None
+    fecha_descarga_vacio: str | None
     gas_oil_lts: float
     peaje_ids: tuple[int, ...]

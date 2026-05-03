@@ -238,6 +238,46 @@ VIAJE_CONFIGURABLE_FIELD_KEYS = tuple(
     key for key, _label in VIAJE_FORM_FIELDS if key != "cliente"
 )
 
+VIAJE_SORT_TYPES = {
+    0: "int",
+    1: "date",
+    2: "text",
+    3: "bool",
+    4: "text",
+    5: "text",
+    6: "text",
+    7: "text",
+    8: "text",
+    9: "text",
+    10: "text",
+    11: "text",
+    12: "text",
+    13: "money",
+    14: "date",
+    15: "money",
+    16: "date",
+    17: "bool",
+    18: "money",
+    19: "date",
+    20: "text",
+    21: "bool",
+    22: "decimal",
+    23: "money",
+    24: "money",
+    25: "text",
+}
+
+
+class SortableTableWidgetItem(QTableWidgetItem):
+    def __init__(self, text: str, sort_value: object) -> None:
+        super().__init__(text)
+        self.sort_value = sort_value
+
+    def __lt__(self, other: object) -> bool:
+        if isinstance(other, SortableTableWidgetItem):
+            return self.sort_value < other.sort_value
+        return super().__lt__(other)
+
 
 class UpdateSignals(QObject):
     finished = Signal(object, bool)
@@ -3063,7 +3103,7 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self.table = QTableWidget(0, 24)
+        self.table = QTableWidget(0, 26)
         self.table.setHorizontalHeaderLabels(
             [
                 "ID",
@@ -3083,20 +3123,23 @@ class MainWindow(QMainWindow):
                 "F.Desc tarifa",
                 "Demora $",
                 "F.Desc demora",
+                "Hay demora",
                 "Vacio $",
                 "F.Desc vacio",
                 "Lugar descarga vacio",
+                "Descarga vacio",
                 "Gas oil (lts)",
                 "Peajes $",
                 "Costo total $",
                 "Estado",
             ]
         )
-        self.table.setColumnHidden(23, True)
+        self.table.setColumnHidden(25, True)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
         )
+        self.table.setSortingEnabled(True)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.itemDoubleClicked.connect(lambda _item: self._edit_viaje())
@@ -3112,14 +3155,26 @@ class MainWindow(QMainWindow):
 
         search = self.search_input.text() if self.search_input is not None else ""
         rows = self.viaje_repository.list_resumen(search)
+        header = self.table.horizontalHeader()
+        sorting_enabled = self.table.isSortingEnabled()
+        sort_column = header.sortIndicatorSection()
+        sort_order = header.sortIndicatorOrder()
+        self.table.setSortingEnabled(False)
+        self.table.clearContents()
         self.table.setRowCount(len(rows))
 
         for row_index, viaje in enumerate(rows):
             for column_index, value in enumerate(self._viaje_to_row(viaje)):
-                item = QTableWidgetItem(value)
+                item = SortableTableWidgetItem(
+                    value,
+                    self._viaje_sort_value(viaje, column_index),
+                )
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(row_index, column_index, item)
 
+        self.table.setSortingEnabled(sorting_enabled)
+        if sorting_enabled and sort_column >= 0:
+            self.table.sortItems(sort_column, sort_order)
         self.table.resizeColumnsToContents()
         self._refresh_billing_months()
         self._refresh_print_report()
@@ -3143,14 +3198,63 @@ class MainWindow(QMainWindow):
             viaje.fecha_descarga_tarifa,
             _format_money(viaje.demora),
             viaje.fecha_descarga_demora,
+            "Si" if bool(viaje.hay_demora) else "No",
             _format_money(viaje.vacio),
             viaje.fecha_descarga_vacio,
             viaje.lugar_descarga_vacio,
+            "Si" if bool(viaje.descarga_vacio) else "No",
             _format_decimal(viaje.gas_oil_lts),
             _format_money(viaje.peajes),
             _format_money(viaje.costo_total),
             viaje.estado,
         ]
+
+    def _viaje_sort_value(self, viaje: ViajeResumen, column_index: int) -> object:
+        match VIAJE_SORT_TYPES.get(column_index, "text"):
+            case "int":
+                return int(viaje.id)
+            case "date":
+                values = {
+                    1: viaje.fecha,
+                    14: viaje.fecha_descarga_tarifa,
+                    16: viaje.fecha_descarga_demora,
+                    19: viaje.fecha_descarga_vacio,
+                }
+                return values.get(column_index, "") or ""
+            case "money":
+                values = {
+                    13: float(viaje.tarifa),
+                    15: float(viaje.demora),
+                    18: float(viaje.vacio),
+                    23: float(viaje.peajes),
+                    24: float(viaje.costo_total),
+                }
+                return values.get(column_index, 0.0)
+            case "decimal":
+                return float(viaje.gas_oil_lts)
+            case "bool":
+                values = {
+                    3: int(bool(viaje.cliente_es_directo)),
+                    17: int(bool(viaje.hay_demora)),
+                    21: int(bool(viaje.descarga_vacio)),
+                }
+                return values.get(column_index, 0)
+            case _:
+                values = {
+                    2: viaje.cliente,
+                    4: viaje.carta_porte,
+                    5: viaje.carga,
+                    6: viaje.lugar_carga,
+                    7: viaje.lugar_descarga,
+                    8: viaje.observaciones,
+                    9: viaje.chofer,
+                    10: viaje.tipo_carga,
+                    11: viaje.camion,
+                    12: viaje.semi,
+                    20: viaje.lugar_descarga_vacio,
+                    25: viaje.estado,
+                }
+                return str(values.get(column_index, "")).lower()
 
     def _build_crud_actions(
         self,
@@ -3977,6 +4081,13 @@ class MainWindow(QMainWindow):
             return
 
         def save() -> None:
+            lugar_descarga_vacio_id = self._optional_int(values["lugar_descarga_vacio_id"])
+            hay_demora = bool(viaje.get("hay_demora")) or float(values["demora"]) != 0
+            descarga_vacio = (
+                bool(viaje.get("descarga_vacio"))
+                or float(values["vacio"]) != 0
+                or lugar_descarga_vacio_id is not None
+            )
             self.viaje_repository.update_full(
                 viaje_id,
                 ViajeCreate(
@@ -3988,8 +4099,8 @@ class MainWindow(QMainWindow):
                     ),
                     lugar_carga_id=int(values["lugar_carga_id"]),
                     lugar_descarga_id=int(values["lugar_descarga_id"]),
-                    lugar_descarga_vacio_id=self._optional_int(
-                        values["lugar_descarga_vacio_id"]
+                    lugar_descarga_vacio_id=(
+                        lugar_descarga_vacio_id if descarga_vacio else None
                     ),
                     observaciones=str(values["observaciones"]).strip(),
                     chofer_id=int(values["chofer_id"]),
@@ -3998,10 +4109,16 @@ class MainWindow(QMainWindow):
                     semi_id=values["semi_id"] if isinstance(values["semi_id"], int) else None,
                     tarifa=float(values["tarifa"]),
                     fecha_descarga_tarifa=str(values["fecha_descarga_tarifa"]),
-                    demora=float(values["demora"]),
-                    fecha_descarga_demora=str(values["fecha_descarga_demora"]),
-                    vacio=float(values["vacio"]),
-                    fecha_descarga_vacio=str(values["fecha_descarga_vacio"]),
+                    hay_demora=hay_demora,
+                    demora=float(values["demora"]) if hay_demora else None,
+                    fecha_descarga_demora=(
+                        str(values["fecha_descarga_demora"]) if hay_demora else None
+                    ),
+                    descarga_vacio=descarga_vacio,
+                    vacio=float(values["vacio"]) if descarga_vacio else None,
+                    fecha_descarga_vacio=(
+                        str(values["fecha_descarga_vacio"]) if descarga_vacio else None
+                    ),
                     gas_oil_lts=float(values["gas_oil_lts"]),
                     peaje_ids=tuple(int(peaje_id) for peaje_id in values["peaje_ids"]),
                 ),
@@ -4409,22 +4526,22 @@ class MainWindow(QMainWindow):
                 "key": "vacio",
                 "label": "Vacio",
                 "type": "money",
-                "value": self._money_from_display(self._cell(row, 17)),
+                "value": self._money_from_display(self._cell(row, 18)),
             },
             {
                 "key": "fecha_descarga_vacio",
                 "label": "F.Desc vacio",
                 "type": "date",
-                "value": self._cell(row, 18),
+                "value": self._cell(row, 19),
                 "required": False,
             },
             {
                 "key": "gas_oil_lts",
                 "label": "Gas oil (lts)",
                 "type": "decimal",
-                "value": self._decimal_from_display(self._cell(row, 19)),
+                "value": self._decimal_from_display(self._cell(row, 22)),
             },
-            {"key": "estado", "label": "Estado", "value": self._cell(row, 22)},
+            {"key": "estado", "label": "Estado", "value": self._cell(row, 25)},
         ]
 
     def _viaje_edit_fields(self, viaje: dict[str, object]) -> list[dict[str, object]]:
@@ -4802,10 +4919,12 @@ class MainWindow(QMainWindow):
             semi_id=semi_id,
             tarifa=self._money_value("tarifa"),
             fecha_descarga_tarifa=fecha_descarga_tarifa,
-            demora=self._money_value("demora") if demora_habilitada else 0,
-            fecha_descarga_demora=fecha_descarga_demora,
-            vacio=self._money_value("vacio") if vacio_habilitado else 0,
-            fecha_descarga_vacio=fecha_descarga_vacio,
+            hay_demora=demora_habilitada,
+            demora=self._money_value("demora") if demora_habilitada else None,
+            fecha_descarga_demora=fecha_descarga_demora or None,
+            descarga_vacio=vacio_habilitado,
+            vacio=self._money_value("vacio") if vacio_habilitado else None,
+            fecha_descarga_vacio=fecha_descarga_vacio or None,
             gas_oil_lts=self._decimal_value("gas_oil_lts"),
             peaje_ids=peaje_ids,
         )
@@ -5903,12 +6022,14 @@ class MetricCard(QFrame):
         self.value_widget.setText(value)
 
 
-def _format_money(value: float) -> str:
-    return f"$ {value:,.0f}".replace(",", ".")
+def _format_money(value: float | None) -> str:
+    amount = 0.0 if value is None else float(value)
+    return f"$ {amount:,.0f}".replace(",", ".")
 
 
-def _format_decimal(value: float) -> str:
-    return f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+def _format_decimal(value: float | None) -> str:
+    amount = 0.0 if value is None else float(value)
+    return f"{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def _month_key(date: QDate) -> str:
