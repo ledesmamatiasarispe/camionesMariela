@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import platform
+import re
 from collections.abc import Callable
 from pathlib import Path
 from threading import Thread
@@ -210,7 +211,9 @@ VIAJE_FORM_FIELDS = (
     ("fecha", "Fecha"),
     ("cliente", "Cliente"),
     ("carta_porte", "N° Carta de Porte"),
-    ("carga", "Carga"),
+    ("carta_porte_no_existe", "No existe"),
+    ("carga", "Codigo contenedor"),
+    ("carga_no_existe", "No existe"),
     ("lugar_carga", "Lugar carga"),
     ("lugar_descarga", "L.Descarga"),
     ("observaciones", "Observaciones"),
@@ -235,37 +238,39 @@ VIAJE_OPTION_TOGGLE_LABELS = {
     "vacio_habilitada": "Vacio",
 }
 VIAJE_CONFIGURABLE_FIELD_KEYS = tuple(
-    key for key, _label in VIAJE_FORM_FIELDS if key != "cliente"
+    key
+    for key, _label in VIAJE_FORM_FIELDS
+    if key != "cliente" and not key.endswith("_no_existe")
 )
 
-VIAJE_SORT_TYPES = {
-    0: "int",
-    1: "date",
-    2: "text",
-    3: "bool",
-    4: "text",
-    5: "text",
-    6: "text",
-    7: "text",
-    8: "text",
-    9: "text",
-    10: "text",
-    11: "text",
-    12: "text",
-    13: "money",
-    14: "date",
-    15: "money",
-    16: "date",
-    17: "bool",
-    18: "money",
-    19: "date",
-    20: "text",
-    21: "bool",
-    22: "decimal",
-    23: "money",
-    24: "money",
-    25: "text",
-}
+VIAJE_HISTORY_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("id", "ID", "int"),
+    ("fecha", "Fecha", "date"),
+    ("fecha_descarga_tarifa", "F.Desc tarifa", "date"),
+    ("cliente", "Cliente", "text"),
+    ("cliente_es_directo", "Es directo", "bool"),
+    ("carta_porte", "N° Carta de Porte", "text"),
+    ("carga", "Codigo contenedor", "text"),
+    ("lugar_carga", "Lugar carga", "text"),
+    ("lugar_descarga", "L.Descarga", "text"),
+    ("tarifa", "Tarifa $", "money"),
+    ("hay_demora", "Hay demora", "bool"),
+    ("demora", "Demora $", "money"),
+    ("fecha_descarga_demora", "F.Desc demora", "date"),
+    ("descarga_vacio", "Descarga vacio", "bool"),
+    ("vacio", "Vacio $", "money"),
+    ("fecha_descarga_vacio", "F.Desc vacio", "date"),
+    ("lugar_descarga_vacio", "Lugar descarga vacio", "text"),
+    ("camion", "Camion", "text"),
+    ("semi", "Semi", "text"),
+    ("chofer", "Chofer", "text"),
+    ("tipo_carga", "T.Carga", "text"),
+    ("gas_oil_lts", "Gas oil (lts)", "decimal"),
+    ("peajes", "Peajes $", "money"),
+    ("costo_total", "Costo total $", "money"),
+    ("observaciones", "Observaciones", "text"),
+    ("estado", "Estado", "text"),
+)
 
 
 class SortableTableWidgetItem(QTableWidgetItem):
@@ -350,6 +355,7 @@ class MainWindow(QMainWindow):
         self.page_subtitle_label: QLabel | None = None
         self.new_button: QPushButton | None = None
         self.save_button: QPushButton | None = None
+        self.save_continue_button: QPushButton | None = None
         self.vehiculos_actions_widget: QWidget | None = None
         self.peajes_actions_widget: QWidget | None = None
         self.billing_month_combo: QComboBox | None = None
@@ -373,14 +379,21 @@ class MainWindow(QMainWindow):
         self.print_month_card: QFrame | None = None
         self.print_year_card: QFrame | None = None
         self.print_client_card: QFrame | None = None
+        self.print_ricco_include_peajes_card: QFrame | None = None
+        self.print_ricco_include_peajes_checkbox: QCheckBox | None = None
         self.print_from_card: QFrame | None = None
         self.print_to_card: QFrame | None = None
         self.print_rows: list[ViajeResumen] = []
         self.company_name_input: QLineEdit | None = None
+        self.theme_mode_combo: QComboBox | None = None
         self.database_path_label: QLabel | None = None
+        self.print_output_dir_label: QLabel | None = None
+        self.database_advanced_widget: QWidget | None = None
         self.font_size_inputs: dict[str, QSpinBox] = {}
         self.form_widgets: dict[str, QWidget] = {}
         self.viaje_form_row_labels: dict[str, QWidget] = {}
+        self.viaje_form_field_containers: dict[str, QWidget] = {}
+        self.viaje_form_groups: dict[str, QWidget] = {}
 
         self.setWindowTitle("Gestion de viajes")
         self.resize(1180, 760)
@@ -467,7 +480,21 @@ class MainWindow(QMainWindow):
         return sizes
 
     def _apply_font_sizes(self) -> None:
-        self.setStyleSheet(_build_app_styles(self._font_sizes()))
+        self.setStyleSheet(_build_app_styles(self._font_sizes(), self._theme_mode()))
+
+    def _theme_mode(self) -> str:
+        value = self.app_settings.get("theme_mode")
+        return str(value) if value in {"light", "dark"} else "light"
+
+    def _save_theme_mode(self) -> None:
+        combo = self.theme_mode_combo
+        if combo is None:
+            return
+        mode = combo.currentData()
+        self.app_settings["theme_mode"] = mode if mode in {"light", "dark"} else "light"
+        self._save_app_settings()
+        self._apply_font_sizes()
+        self._refresh_object_table("Opciones")
 
     def _save_font_sizes(self) -> None:
         sizes = {
@@ -820,6 +847,11 @@ class MainWindow(QMainWindow):
         save_button.clicked.connect(self._save_viaje)
         self.save_button = save_button
 
+        save_continue_button = QPushButton("Guardar y seguir cargando")
+        save_continue_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_continue_button.clicked.connect(self._save_viaje_and_continue)
+        self.save_continue_button = save_continue_button
+
         vehiculos_actions = self._build_vehiculos_topbar_actions()
         vehiculos_actions.setVisible(False)
         self.vehiculos_actions_widget = vehiculos_actions
@@ -846,6 +878,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(peajes_actions)
         layout.addWidget(new_button)
         layout.addWidget(save_button)
+        layout.addWidget(save_continue_button)
         return topbar
 
     def _toggle_sidebar(self) -> None:
@@ -869,21 +902,6 @@ class MainWindow(QMainWindow):
         panel_layout.setContentsMargins(18, 18, 18, 18)
         panel_layout.setSpacing(14)
 
-        form_grid = QGridLayout()
-        form_grid.setHorizontalSpacing(28)
-        form_grid.setVerticalSpacing(0)
-        form_grid.setColumnStretch(0, 1)
-        form_grid.setColumnStretch(1, 1)
-
-        left_form = QFormLayout()
-        right_form = QFormLayout()
-        for form in (left_form, right_form):
-            form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-            form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-            form.setHorizontalSpacing(16)
-            form.setVerticalSpacing(10)
-
         fecha = QDateEdit()
         _allow_keyboard_spinbox_input(fecha)
         fecha.setCalendarPopup(True)
@@ -896,6 +914,8 @@ class MainWindow(QMainWindow):
         )
         cliente.currentIndexChanged.connect(self._apply_viaje_field_visibility)
         carta_porte = QLineEdit()
+        carta_porte_no_existe = QCheckBox()
+        carta_porte_no_existe.toggled.connect(self._apply_missing_viaje_fields)
         carga = self._build_combo(
             [
                 (item.codigo_contenedor, item.id)
@@ -905,7 +925,11 @@ class MainWindow(QMainWindow):
         carga.setEditable(True)
         carga.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         if carga.lineEdit() is not None:
-            carga.lineEdit().setPlaceholderText("Codigo provisto por el cliente")
+            carga.lineEdit().setPlaceholderText("ABCD 123456 - 7")
+            carga.lineEdit().textEdited.connect(self._format_carga_field_live)
+            carga.lineEdit().editingFinished.connect(self._format_carga_field)
+        carga_no_existe = QCheckBox()
+        carga_no_existe.toggled.connect(self._apply_missing_viaje_fields)
 
         lugar_carga = self._build_lugar_combo("CARGA")
         lugar_descarga = self._build_lugar_combo("DESCARGA")
@@ -922,7 +946,7 @@ class MainWindow(QMainWindow):
             [(item.etiqueta, item.id)
              for item in self.vehiculo_repository.list_all("CAMION")]
         )
-        camion.currentIndexChanged.connect(self._apply_default_chofer_for_camion)
+        camion.currentIndexChanged.connect(self._apply_defaults_for_camion)
         semi = self._build_combo(
             [("Sin semi", None)]
             + [(item.etiqueta, item.id)
@@ -967,7 +991,9 @@ class MainWindow(QMainWindow):
             "fecha": fecha,
             "cliente": cliente,
             "carta_porte": carta_porte,
+            "carta_porte_no_existe": carta_porte_no_existe,
             "carga": carga,
+            "carga_no_existe": carga_no_existe,
             "lugar_carga": lugar_carga,
             "lugar_descarga": lugar_descarga,
             "observaciones": observaciones,
@@ -989,34 +1015,81 @@ class MainWindow(QMainWindow):
             "peajes": peajes,
         }
 
-        self._add_viaje_form_row(left_form, "fecha", fecha)
-        self._add_viaje_form_row(left_form, "cliente", cliente)
-        self._add_viaje_form_row(left_form, "carta_porte", carta_porte)
-        self._add_viaje_form_row(left_form, "carga", carga)
-        self._add_viaje_form_row(left_form, "lugar_carga", lugar_carga)
-        self._add_viaje_form_row(left_form, "lugar_descarga", lugar_descarga)
-        self._add_viaje_form_row(left_form, "observaciones", observaciones)
-        self._add_viaje_form_row(left_form, "tipo_carga", tipo_carga)
+        carta_porte_stack = self._build_missing_viaje_field_stack(
+            "carta_porte",
+            carta_porte,
+            "carta_porte_no_existe",
+            carta_porte_no_existe,
+        )
+        carga_stack = self._build_missing_viaje_field_stack(
+            "carga",
+            carga,
+            "carga_no_existe",
+            carga_no_existe,
+        )
 
-        self._add_viaje_form_row(right_form, "camion", camion)
-        self._add_viaje_form_row(right_form, "chofer", chofer)
-        self._add_viaje_form_row(right_form, "semi", semi)
-        self._add_viaje_form_row(right_form, "tarifa", tarifa)
-        self._add_viaje_form_row(right_form, "fecha_descarga_tarifa", fecha_descarga_tarifa)
-        self._add_viaje_form_row(right_form, "demora_habilitada", demora_habilitada)
-        self._add_viaje_form_row(right_form, "demora", demora)
-        self._add_viaje_form_row(right_form, "fecha_descarga_demora", fecha_descarga_demora)
-        self._add_viaje_form_row(right_form, "vacio_habilitada", vacio_habilitada)
-        self._add_viaje_form_row(right_form, "vacio", vacio)
-        self._add_viaje_form_row(right_form, "fecha_descarga_vacio", fecha_descarga_vacio)
-        self._add_viaje_form_row(right_form, "lugar_descarga_vacio", lugar_descarga_vacio)
-        self._add_viaje_form_row(right_form, "gas_oil_lts", gas_oil_lts)
-        self._add_viaje_form_row(right_form, "peaje_empresa", peaje_empresa)
-        self._add_viaje_form_row(right_form, "peajes", peajes)
+        datos_group = self._build_viaje_form_group(
+            "Datos del viaje",
+            (
+                ("fecha", fecha),
+                ("fecha_descarga_tarifa", fecha_descarga_tarifa),
+                ("cliente", cliente),
+                ("carta_porte", carta_porte_stack),
+                ("carga", carga_stack),
+                ("lugar_carga", lugar_carga),
+                ("lugar_descarga", lugar_descarga),
+                ("tarifa", tarifa),
+            ),
+        )
+        demora_group = self._build_viaje_form_group(
+            "Demora",
+            (
+                ("demora_habilitada", demora_habilitada),
+                ("demora", demora),
+                ("fecha_descarga_demora", fecha_descarga_demora),
+            ),
+        )
+        vacio_group = self._build_viaje_form_group(
+            "Vacio",
+            (
+                ("vacio_habilitada", vacio_habilitada),
+                ("vacio", vacio),
+                ("fecha_descarga_vacio", fecha_descarga_vacio),
+                ("lugar_descarga_vacio", lugar_descarga_vacio),
+            ),
+        )
+        self.viaje_form_groups["demora"] = demora_group
+        self.viaje_form_groups["vacio"] = vacio_group
+        operacion_group = self._build_viaje_form_group(
+            "Operacion",
+            (
+                ("camion", camion),
+                ("semi", semi),
+                ("chofer", chofer),
+                ("tipo_carga", tipo_carga),
+                ("gas_oil_lts", gas_oil_lts),
+                ("peaje_empresa", peaje_empresa),
+                ("peajes", peajes),
+            ),
+        )
 
-        form_grid.addLayout(left_form, 0, 0)
-        form_grid.addLayout(right_form, 0, 1)
-        panel_layout.addLayout(form_grid)
+        observaciones_form = QFormLayout()
+        observaciones_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        observaciones_form.setFormAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        observaciones_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        observaciones_form.setHorizontalSpacing(16)
+        observaciones_form.setVerticalSpacing(10)
+        self._add_viaje_form_row(observaciones_form, "observaciones", observaciones)
+
+        panel_layout.addWidget(datos_group)
+        panel_layout.addWidget(demora_group)
+        panel_layout.addWidget(vacio_group)
+        panel_layout.addWidget(operacion_group)
+        panel_layout.addLayout(observaciones_form)
 
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -1026,6 +1099,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(scroll, stretch=1)
         self._refresh_peaje_checklist()
         self._apply_viaje_field_visibility()
+        self._apply_missing_viaje_fields()
         return tab
 
     def _build_history_tab(self) -> QWidget:
@@ -1051,6 +1125,53 @@ class MainWindow(QMainWindow):
         label = form.labelForField(widget)
         if label is not None:
             self.viaje_form_row_labels[field_key] = label
+
+    def _build_missing_viaje_field_stack(
+        self,
+        field_key: str,
+        field_widget: QWidget,
+        checkbox_key: str,
+        checkbox: QCheckBox,
+    ) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(3)
+
+        checkbox.setText("No existe")
+        layout.addWidget(checkbox)
+        layout.addWidget(field_widget)
+
+        self.viaje_form_field_containers[field_key] = container
+        self.viaje_form_field_containers[checkbox_key] = container
+        return container
+
+    def _build_viaje_form_group(
+        self,
+        title: str,
+        rows: tuple[tuple[str, QWidget], ...],
+    ) -> QFrame:
+        group = QFrame()
+        group.setObjectName("viajeFieldGroup")
+
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(12, 10, 12, 12)
+        layout.setSpacing(8)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("viajeFieldGroupTitle")
+        layout.addWidget(title_label)
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
+        for field_key, widget in rows:
+            self._add_viaje_form_row(form, field_key, widget)
+        layout.addLayout(form)
+        return group
 
     def _build_clients_tab(self) -> QWidget:
         return self._build_static_table_tab(
@@ -1128,6 +1249,7 @@ class MainWindow(QMainWindow):
                 "Patente",
                 "Km actuales",
                 "Chofer predeterminado",
+                "Semi predeterminado",
                 "Observaciones",
             ],
             self._vehiculo_rows(),
@@ -1562,6 +1684,16 @@ class MainWindow(QMainWindow):
         self.print_client_card = client_card
         top_controls.addWidget(client_card)
 
+        include_peajes_checkbox = QCheckBox("Sumar peajes en el total")
+        include_peajes_checkbox.setChecked(False)
+        self.print_ricco_include_peajes_checkbox = include_peajes_checkbox
+        include_peajes_card = self._build_billing_filter_card(
+            "Cliente Ricco",
+            include_peajes_checkbox,
+        )
+        self.print_ricco_include_peajes_card = include_peajes_card
+        top_controls.addWidget(include_peajes_card)
+
         top_controls.addStretch()
 
         count_card = MetricCard("Viajes del periodo", "0")
@@ -1658,7 +1790,9 @@ class MainWindow(QMainWindow):
             )
         )
         layout.addWidget(self._build_company_settings_panel())
+        layout.addWidget(self._build_appearance_settings_panel())
         layout.addWidget(self._build_font_size_settings_panel())
+        layout.addWidget(self._build_print_output_settings_panel())
         layout.addWidget(self._build_updates_panel())
         layout.addWidget(self._build_database_tools_panel())
         layout.addStretch()
@@ -1671,18 +1805,21 @@ class MainWindow(QMainWindow):
 
     def _options_rows(self) -> list[tuple[int, list[str]]]:
         sizes = self._font_sizes()
+        theme_label = "Nocturno" if self._theme_mode() == "dark" else "Claro"
         return [
             (1, ["Base de datos", str(self.database_path)]),
             (2, ["Empresa", self.company_name]),
-            (3, ["Actualizaciones", "GitHub Releases"]),
-            (4, ["Modo", "Cliente sin servidor"]),
-            (5, ["Texto general", f"{sizes['base']} px"]),
-            (6, ["Texto secundario/chico", f"{sizes['small']} px"]),
-            (7, ["Titulos", f"{sizes['page_title']} / {sizes['section_title']} px"]),
-            (8, ["Botones", f"{sizes['button']} px"]),
-            (9, ["Navegacion lateral", f"{sizes['brand']} px"]),
-            (10, ["Tablas", f"{sizes['table_header']} px"]),
-            (11, ["Metricas", f"{sizes['metric']} px"]),
+            (3, ["Directorio impresiones", str(self._print_output_dir())]),
+            (4, ["Actualizaciones", "GitHub Releases"]),
+            (5, ["Modo", "Cliente sin servidor"]),
+            (6, ["Apariencia", theme_label]),
+            (7, ["Texto general", f"{sizes['base']} px"]),
+            (8, ["Texto secundario/chico", f"{sizes['small']} px"]),
+            (9, ["Titulos", f"{sizes['page_title']} / {sizes['section_title']} px"]),
+            (10, ["Botones", f"{sizes['button']} px"]),
+            (11, ["Navegacion lateral", f"{sizes['brand']} px"]),
+            (12, ["Tablas", f"{sizes['table_header']} px"]),
+            (13, ["Metricas", f"{sizes['metric']} px"]),
         ]
 
     def _save_company_name(self) -> None:
@@ -1726,6 +1863,45 @@ class MainWindow(QMainWindow):
 
         controls.addWidget(company_name_input, stretch=1)
         controls.addWidget(save_button)
+
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addLayout(controls)
+        return panel
+
+    def _build_appearance_settings_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("Apariencia")
+        title.setObjectName("sectionTitle")
+        description = QLabel(
+            "Cambia entre modo claro y nocturno usando el estilo interno de la app."
+        )
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+
+        mode_combo = QComboBox()
+        _configure_combo_popup(mode_combo)
+        mode_combo.addItem("Claro", "light")
+        mode_combo.addItem("Nocturno", "dark")
+        current_index = mode_combo.findData(self._theme_mode())
+        mode_combo.setCurrentIndex(current_index if current_index >= 0 else 0)
+        self.theme_mode_combo = mode_combo
+
+        save_button = QPushButton("Guardar apariencia")
+        save_button.setObjectName("primaryButton")
+        save_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_button.clicked.connect(self._save_theme_mode)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(12)
+        controls.addWidget(mode_combo)
+        controls.addWidget(save_button)
+        controls.addStretch()
 
         layout.addWidget(title)
         layout.addWidget(description)
@@ -1800,6 +1976,48 @@ class MainWindow(QMainWindow):
         layout.addLayout(buttons)
         return panel
 
+    def _build_print_output_settings_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("Impresiones")
+        title.setObjectName("sectionTitle")
+        description = QLabel(
+            "Carpeta predeterminada para guardar todos los Excel y PDF generados."
+        )
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+
+        path_label = QLabel()
+        path_label.setObjectName("muted")
+        path_label.setWordWrap(True)
+        path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.print_output_dir_label = path_label
+        self._refresh_print_output_dir_label()
+
+        choose_button = QPushButton("Elegir carpeta")
+        choose_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        choose_button.clicked.connect(self._choose_print_output_dir)
+
+        default_button = QPushButton("Usar carpeta de la base")
+        default_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        default_button.clicked.connect(self._use_default_print_output_dir)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(12)
+        buttons.addWidget(choose_button)
+        buttons.addWidget(default_button)
+        buttons.addStretch()
+
+        layout.addWidget(title)
+        layout.addWidget(description)
+        layout.addWidget(path_label)
+        layout.addLayout(buttons)
+        return panel
+
     def _build_database_tools_panel(self) -> QWidget:
         panel = QFrame()
         panel.setObjectName("panel")
@@ -1815,6 +2033,9 @@ class MainWindow(QMainWindow):
         )
         description.setObjectName("muted")
         description.setWordWrap(True)
+
+        show_advanced = QCheckBox("Mostrar opciones avanzadas de base de datos")
+        show_advanced.setChecked(False)
 
         path_label = QLabel()
         path_label.setObjectName("muted")
@@ -1848,11 +2069,21 @@ class MainWindow(QMainWindow):
         clear_button.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_button.clicked.connect(self._clear_database_with_confirmation)
 
+        advanced_widget = QWidget()
+        advanced_layout = QVBoxLayout(advanced_widget)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.setSpacing(12)
+        advanced_layout.addWidget(path_label)
+        advanced_layout.addLayout(path_buttons)
+        advanced_layout.addWidget(clear_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        advanced_widget.setVisible(False)
+        self.database_advanced_widget = advanced_widget
+        show_advanced.toggled.connect(advanced_widget.setVisible)
+
         layout.addWidget(title)
         layout.addWidget(description)
-        layout.addWidget(path_label)
-        layout.addLayout(path_buttons)
-        layout.addWidget(clear_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(show_advanced)
+        layout.addWidget(advanced_widget)
         return panel
 
     def _build_updates_panel(self) -> QWidget:
@@ -1894,6 +2125,38 @@ class MainWindow(QMainWindow):
         if self.database_path_label is None:
             return
         self.database_path_label.setText(f"Ubicacion actual: {self.database_path}")
+
+    def _print_output_dir(self) -> Path:
+        configured = str(self.app_settings.get("print_output_dir", "")).strip()
+        if configured:
+            return Path(configured).expanduser().resolve(strict=False)
+        return self.database_path.parent
+
+    def _refresh_print_output_dir_label(self) -> None:
+        if self.print_output_dir_label is None:
+            return
+        self.print_output_dir_label.setText(f"Carpeta actual: {self._print_output_dir()}")
+
+    def _choose_print_output_dir(self) -> None:
+        selected_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Elegir carpeta para impresiones",
+            str(self._print_output_dir()),
+        )
+        if not selected_dir:
+            return
+        self.app_settings["print_output_dir"] = str(
+            Path(selected_dir).expanduser().resolve(strict=False)
+        )
+        self._save_app_settings()
+        self._refresh_print_output_dir_label()
+        self._refresh_object_table("Opciones")
+
+    def _use_default_print_output_dir(self) -> None:
+        self.app_settings["print_output_dir"] = ""
+        self._save_app_settings()
+        self._refresh_print_output_dir_label()
+        self._refresh_object_table("Opciones")
 
     def _open_database_location(self) -> None:
         target_dir = self.database_path.parent
@@ -1982,6 +2245,7 @@ class MainWindow(QMainWindow):
         ):
             self._refresh_object_table(title)
         self._refresh_database_path_label()
+        self._refresh_print_output_dir_label()
         self._refresh_viaje_form_options()
         self._refresh_table()
         self._refresh_metrics()
@@ -2081,6 +2345,7 @@ class MainWindow(QMainWindow):
                     item.patente,
                     str(item.km_actual),
                     item.chofer_predeterminado_nombre,
+                    item.semi_predeterminado_nombre,
                     item.observaciones,
                 ],
             )
@@ -2516,6 +2781,32 @@ class MainWindow(QMainWindow):
         index = chofer.findData(chofer_id)
         if index >= 0:
             chofer.setCurrentIndex(index)
+
+    def _apply_default_semi_for_camion(self) -> None:
+        camion = self.form_widgets.get("camion")
+        semi = self.form_widgets.get("semi")
+        if not isinstance(camion, QComboBox) or not isinstance(semi, QComboBox):
+            return
+
+        camion_id = camion.currentData()
+        if not isinstance(camion_id, int):
+            return
+
+        vehiculo = self._find_by_id(
+            self.vehiculo_repository.list_all("CAMION"),
+            camion_id,
+        )
+        semi_id = getattr(vehiculo, "semi_predeterminado_id", None)
+        if not isinstance(semi_id, int):
+            return
+
+        index = semi.findData(semi_id)
+        if index >= 0:
+            semi.setCurrentIndex(index)
+
+    def _apply_defaults_for_camion(self) -> None:
+        self._apply_default_chofer_for_camion()
+        self._apply_default_semi_for_camion()
 
     def _show_selected_empresa_peajes(self) -> None:
         empresa_id = self._selected_object_id("Peajes")
@@ -3103,38 +3394,11 @@ class MainWindow(QMainWindow):
             )
         )
 
-        self.table = QTableWidget(0, 26)
+        self.table = QTableWidget(0, len(VIAJE_HISTORY_COLUMNS))
         self.table.setHorizontalHeaderLabels(
-            [
-                "ID",
-                "Fecha",
-                "Cliente",
-                "Es directo",
-                "N° Carta de Porte",
-                "Carga",
-                "Lugar carga",
-                "L.Descarga",
-                "Observaciones",
-                "Chofer",
-                "T.Carga",
-                "Camion",
-                "Semi",
-                "Tarifa $",
-                "F.Desc tarifa",
-                "Demora $",
-                "F.Desc demora",
-                "Hay demora",
-                "Vacio $",
-                "F.Desc vacio",
-                "Lugar descarga vacio",
-                "Descarga vacio",
-                "Gas oil (lts)",
-                "Peajes $",
-                "Costo total $",
-                "Estado",
-            ]
+            [label for _key, label, _sort_type in VIAJE_HISTORY_COLUMNS]
         )
-        self.table.setColumnHidden(25, True)
+        self.table.setColumnHidden(len(VIAJE_HISTORY_COLUMNS) - 1, True)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents
@@ -3181,80 +3445,38 @@ class MainWindow(QMainWindow):
 
     def _viaje_to_row(self, viaje: ViajeResumen) -> list[str]:
         return [
-            str(viaje.id),
-            viaje.fecha,
-            viaje.cliente,
-            "Si" if bool(viaje.cliente_es_directo) else "No",
-            viaje.carta_porte,
-            viaje.carga,
-            viaje.lugar_carga,
-            viaje.lugar_descarga,
-            viaje.observaciones,
-            viaje.chofer,
-            viaje.tipo_carga,
-            viaje.camion,
-            viaje.semi,
-            _format_money(viaje.tarifa),
-            viaje.fecha_descarga_tarifa,
-            _format_money(viaje.demora),
-            viaje.fecha_descarga_demora,
-            "Si" if bool(viaje.hay_demora) else "No",
-            _format_money(viaje.vacio),
-            viaje.fecha_descarga_vacio,
-            viaje.lugar_descarga_vacio,
-            "Si" if bool(viaje.descarga_vacio) else "No",
-            _format_decimal(viaje.gas_oil_lts),
-            _format_money(viaje.peajes),
-            _format_money(viaje.costo_total),
-            viaje.estado,
+            self._viaje_column_text(viaje, key)
+            for key, _label, _sort_type in VIAJE_HISTORY_COLUMNS
         ]
 
     def _viaje_sort_value(self, viaje: ViajeResumen, column_index: int) -> object:
-        match VIAJE_SORT_TYPES.get(column_index, "text"):
+        key, _label, sort_type = VIAJE_HISTORY_COLUMNS[column_index]
+        match sort_type:
             case "int":
-                return int(viaje.id)
+                return int(self._viaje_column_raw_value(viaje, key) or 0)
             case "date":
-                values = {
-                    1: viaje.fecha,
-                    14: viaje.fecha_descarga_tarifa,
-                    16: viaje.fecha_descarga_demora,
-                    19: viaje.fecha_descarga_vacio,
-                }
-                return values.get(column_index, "") or ""
+                return str(self._viaje_column_raw_value(viaje, key) or "")
             case "money":
-                values = {
-                    13: float(viaje.tarifa),
-                    15: float(viaje.demora),
-                    18: float(viaje.vacio),
-                    23: float(viaje.peajes),
-                    24: float(viaje.costo_total),
-                }
-                return values.get(column_index, 0.0)
+                return float(self._viaje_column_raw_value(viaje, key) or 0.0)
             case "decimal":
-                return float(viaje.gas_oil_lts)
+                return float(self._viaje_column_raw_value(viaje, key) or 0.0)
             case "bool":
-                values = {
-                    3: int(bool(viaje.cliente_es_directo)),
-                    17: int(bool(viaje.hay_demora)),
-                    21: int(bool(viaje.descarga_vacio)),
-                }
-                return values.get(column_index, 0)
+                return int(bool(self._viaje_column_raw_value(viaje, key)))
             case _:
-                values = {
-                    2: viaje.cliente,
-                    4: viaje.carta_porte,
-                    5: viaje.carga,
-                    6: viaje.lugar_carga,
-                    7: viaje.lugar_descarga,
-                    8: viaje.observaciones,
-                    9: viaje.chofer,
-                    10: viaje.tipo_carga,
-                    11: viaje.camion,
-                    12: viaje.semi,
-                    20: viaje.lugar_descarga_vacio,
-                    25: viaje.estado,
-                }
-                return str(values.get(column_index, "")).lower()
+                return str(self._viaje_column_raw_value(viaje, key) or "").lower()
+
+    def _viaje_column_text(self, viaje: ViajeResumen, key: str) -> str:
+        value = self._viaje_column_raw_value(viaje, key)
+        if key in {"cliente_es_directo", "hay_demora", "descarga_vacio"}:
+            return "Si" if bool(value) else "No"
+        if key in {"tarifa", "demora", "vacio", "peajes", "costo_total"}:
+            return _format_money(value if isinstance(value, int | float) else None)
+        if key == "gas_oil_lts":
+            return _format_decimal(value if isinstance(value, int | float) else None)
+        return "" if value is None else str(value)
+
+    def _viaje_column_raw_value(self, viaje: ViajeResumen, key: str) -> object:
+        return getattr(viaje, key)
 
     def _build_crud_actions(
         self,
@@ -3694,6 +3916,9 @@ class MainWindow(QMainWindow):
                 chofer_predeterminado_id=self._optional_int(
                     values["chofer_predeterminado_id"]
                 ),
+                semi_predeterminado_id=self._optional_int(
+                    values["semi_predeterminado_id"]
+                ),
                 observaciones=str(values["observaciones"]).strip(),
             )
             self._refresh_object_table("Vehiculos")
@@ -3717,6 +3942,7 @@ class MainWindow(QMainWindow):
                     "patente": vehiculo.patente,
                     "km_actual": vehiculo.km_actual,
                     "chofer_predeterminado_id": vehiculo.chofer_predeterminado_id,
+                    "semi_predeterminado_id": vehiculo.semi_predeterminado_id,
                     "observaciones": vehiculo.observaciones,
                 }
             ),
@@ -3733,6 +3959,9 @@ class MainWindow(QMainWindow):
                 km_actual=int(values["km_actual"]),
                 chofer_predeterminado_id=self._optional_int(
                     values["chofer_predeterminado_id"]
+                ),
+                semi_predeterminado_id=self._optional_int(
+                    values["semi_predeterminado_id"]
                 ),
                 observaciones=str(values["observaciones"]).strip(),
             )
@@ -4084,14 +4313,16 @@ class MainWindow(QMainWindow):
             hay_demora = bool(values["hay_demora"])
             descarga_vacio = bool(values["descarga_vacio"])
             lugar_descarga_vacio_id = self._optional_int(values["lugar_descarga_vacio_id"])
+            carta_porte = self._carta_porte_from_values(values)
+            codigo_contenedor = self._codigo_contenedor_from_values(values)
             self.viaje_repository.update_full(
                 viaje_id,
                 ViajeCreate(
                     fecha=str(values["fecha"]),
                     cliente_id=int(values["cliente_id"]),
-                    carta_porte=str(values["carta_porte"]).strip(),
+                    carta_porte=carta_porte,
                     carga_id=self.carga_repository.get_or_create(
-                        codigo_contenedor=str(values["carga_codigo"]).strip()
+                        codigo_contenedor=codigo_contenedor
                     ),
                     lugar_carga_id=int(values["lugar_carga_id"]),
                     lugar_descarga_id=int(values["lugar_descarga_id"]),
@@ -4125,6 +4356,26 @@ class MainWindow(QMainWindow):
             self._refresh_viaje_form_options()
 
         self._run_data_action("Viaje actualizado.", save)
+
+    def _carta_porte_from_values(self, values: dict[str, object]) -> str:
+        if bool(values.get("carta_porte_no_existe")):
+            return ""
+        carta_porte = str(values.get("carta_porte", "")).strip()
+        if not carta_porte:
+            raise ValueError(
+                "Completa la carta de porte o marca No existe si el viaje no tiene."
+            )
+        return carta_porte
+
+    def _codigo_contenedor_from_values(self, values: dict[str, object]) -> str:
+        if bool(values.get("carga_no_existe")):
+            return "Sin contenedor"
+        codigo = str(values.get("carga_codigo", "")).strip()
+        if not codigo:
+            raise ValueError(
+                "Completa el codigo contenedor o marca No existe si el viaje no tiene."
+            )
+        return _format_codigo_contenedor(codigo)
 
     def _delete_viaje(self) -> None:
         viaje_id = self._selected_viaje_id()
@@ -4357,6 +4608,22 @@ class MainWindow(QMainWindow):
                 },
             },
             {
+                "key": "semi_predeterminado_id",
+                "label": "Semi predeterminado",
+                "type": "combo",
+                "value": values.get("semi_predeterminado_id"),
+                "options": [("Sin semi predeterminado", None)]
+                + [
+                    (item.etiqueta, item.id)
+                    for item in self.vehiculo_repository.list_all("SEMI")
+                ],
+                "required": False,
+                "visible_when": {
+                    "field": "tipo",
+                    "equals": "CAMION",
+                },
+            },
+            {
                 "key": "observaciones",
                 "label": "Observaciones",
                 "type": "multiline",
@@ -4482,60 +4749,60 @@ class MainWindow(QMainWindow):
             {
                 "key": "carta_porte",
                 "label": "N° Carta de Porte",
-                "value": self._cell(row, 4),
+                "value": self._cell(row, 5),
                 "required": False,
             },
             {
                 "key": "observaciones",
                 "label": "Observaciones",
                 "type": "multiline",
-                "value": self._cell(row, 8),
+                "value": self._cell(row, 24),
                 "required": False,
             },
             {
                 "key": "tarifa",
                 "label": "Tarifa",
                 "type": "money",
-                "value": self._money_from_display(self._cell(row, 13)),
+                "value": self._money_from_display(self._cell(row, 9)),
             },
             {
                 "key": "fecha_descarga_tarifa",
                 "label": "F.Desc tarifa",
                 "type": "date",
-                "value": self._cell(row, 14),
+                "value": self._cell(row, 2),
                 "required": False,
             },
             {
                 "key": "demora",
                 "label": "Demora",
                 "type": "money",
-                "value": self._money_from_display(self._cell(row, 15)),
+                "value": self._money_from_display(self._cell(row, 11)),
             },
             {
                 "key": "fecha_descarga_demora",
                 "label": "F.Desc demora",
                 "type": "date",
-                "value": self._cell(row, 16),
+                "value": self._cell(row, 12),
                 "required": False,
             },
             {
                 "key": "vacio",
                 "label": "Vacio",
                 "type": "money",
-                "value": self._money_from_display(self._cell(row, 18)),
+                "value": self._money_from_display(self._cell(row, 14)),
             },
             {
                 "key": "fecha_descarga_vacio",
                 "label": "F.Desc vacio",
                 "type": "date",
-                "value": self._cell(row, 19),
+                "value": self._cell(row, 15),
                 "required": False,
             },
             {
                 "key": "gas_oil_lts",
                 "label": "Gas oil (lts)",
                 "type": "decimal",
-                "value": self._decimal_from_display(self._cell(row, 22)),
+                "value": self._decimal_from_display(self._cell(row, 21)),
             },
             {"key": "estado", "label": "Estado", "value": self._cell(row, 25)},
         ]
@@ -4559,9 +4826,22 @@ class MainWindow(QMainWindow):
                 "required": False,
             },
             {
+                "key": "carta_porte_no_existe",
+                "label": "Carta porte no existe",
+                "type": "checkbox",
+                "value": not bool(str(viaje["carta_porte"]).strip()),
+            },
+            {
                 "key": "carga_codigo",
-                "label": "Carga",
+                "label": "Codigo contenedor",
                 "value": viaje["carga_codigo"],
+                "required": False,
+            },
+            {
+                "key": "carga_no_existe",
+                "label": "Codigo contenedor no existe",
+                "type": "checkbox",
+                "value": str(viaje["carga_codigo"]).strip().lower() == "sin contenedor",
             },
             {
                 "key": "lugar_carga_id",
@@ -4828,6 +5108,10 @@ class MainWindow(QMainWindow):
         for field_key, widget in self.form_widgets.items():
             if field_key == "cliente":
                 visible = True
+            elif field_key == "carta_porte_no_existe":
+                visible = "carta_porte" in enabled_fields
+            elif field_key == "carga_no_existe":
+                visible = "carga" in enabled_fields
             elif field_key == "demora_habilitada":
                 visible = demora_group_enabled
             elif field_key in {"demora", "fecha_descarga_demora"}:
@@ -4839,31 +5123,119 @@ class MainWindow(QMainWindow):
             else:
                 visible = field_key in enabled_fields
             widget.setVisible(visible)
+            container = self.viaje_form_field_containers.get(field_key)
+            if container is not None:
+                container.setVisible(visible)
             label = self.viaje_form_row_labels.get(field_key)
             if label is not None:
                 label.setVisible(visible)
+        demora_group = self.viaje_form_groups.get("demora")
+        if demora_group is not None:
+            demora_group.setVisible(demora_group_enabled)
+        vacio_group = self.viaje_form_groups.get("vacio")
+        if vacio_group is not None:
+            vacio_group.setVisible(vacio_group_enabled)
+        self._apply_missing_viaje_fields()
 
     def _checkbox_checked(self, key: str) -> bool:
         widget = self.form_widgets.get(key)
         return isinstance(widget, QCheckBox) and widget.isChecked()
 
+    def _apply_missing_viaje_fields(self) -> None:
+        carta_porte = self.form_widgets.get("carta_porte")
+        carta_porte_no_existe = self.form_widgets.get("carta_porte_no_existe")
+        if isinstance(carta_porte, QLineEdit) and isinstance(
+            carta_porte_no_existe,
+            QCheckBox,
+        ):
+            missing = carta_porte_no_existe.isChecked()
+            if missing:
+                carta_porte.clear()
+            carta_porte.setEnabled(not missing)
+
+        carga = self.form_widgets.get("carga")
+        carga_no_existe = self.form_widgets.get("carga_no_existe")
+        if isinstance(carga, QComboBox) and isinstance(carga_no_existe, QCheckBox):
+            missing = carga_no_existe.isChecked()
+            if missing:
+                carga.setCurrentText("")
+            carga.setEnabled(not missing)
+
+    def _format_carga_field(self) -> None:
+        carga_no_existe = self.form_widgets.get("carga_no_existe")
+        if isinstance(carga_no_existe, QCheckBox) and carga_no_existe.isChecked():
+            return
+
+        carga = self.form_widgets.get("carga")
+        if not isinstance(carga, QComboBox):
+            return
+
+        codigo = carga.currentText().strip()
+        if not codigo:
+            return
+
+        try:
+            carga.setCurrentText(_format_codigo_contenedor(codigo))
+        except ValueError:
+            pass
+
+    def _format_carga_field_live(self, text: str) -> None:
+        carga = self.form_widgets.get("carga")
+        carga_no_existe = self.form_widgets.get("carga_no_existe")
+        if not isinstance(carga, QComboBox):
+            return
+        if isinstance(carga_no_existe, QCheckBox) and carga_no_existe.isChecked():
+            return
+
+        line_edit = carga.lineEdit()
+        if line_edit is None:
+            return
+
+        cursor_position = line_edit.cursorPosition()
+        raw_before_cursor = _codigo_contenedor_raw(text[:cursor_position])
+        formatted = _format_codigo_contenedor_partial(text)
+        if formatted == text:
+            return
+
+        cursor_after_format = len(_format_codigo_contenedor_partial(raw_before_cursor))
+        previous_state = line_edit.blockSignals(True)
+        line_edit.setText(formatted)
+        line_edit.setCursorPosition(min(cursor_after_format, len(formatted)))
+        line_edit.blockSignals(previous_state)
+
     def _save_viaje(self) -> None:
+        if not self._create_viaje_from_form():
+            return
+
+        QMessageBox.information(self, "Viaje guardado", "El viaje se cargo correctamente.")
+        self._refresh_after_viaje_save()
+        self._clear_viaje_form()
+        self._go_to_history_tab()
+
+    def _save_viaje_and_continue(self) -> None:
+        if not self._create_viaje_from_form():
+            return
+
+        self._refresh_after_viaje_save()
+        self._clear_viaje_form_for_continue()
+
+    def _create_viaje_from_form(self) -> bool:
         try:
             viaje = self._collect_viaje_form()
             self.viaje_repository.create(viaje)
         except ValueError as exc:
             QMessageBox.warning(self, "Datos incompletos", str(exc))
-            return
+            return False
         except Exception as exc:
             QMessageBox.critical(self, "Error", f"No se pudo guardar el viaje.\n{exc}")
-            return
+            return False
 
-        QMessageBox.information(self, "Viaje guardado", "El viaje se cargo correctamente.")
+        return True
+
+    def _refresh_after_viaje_save(self) -> None:
         self._refresh_viaje_form_options()
         self._refresh_table()
         self._refresh_metrics()
-        self._clear_viaje_form()
-        self._go_to_history_tab()
 
     def _prepare_new_viaje(self) -> None:
         if not self._confirm_clear_viaje_form():
@@ -4920,7 +5292,7 @@ class MainWindow(QMainWindow):
         return ViajeCreate(
             fecha=fecha,
             cliente_id=cliente_id,
-            carta_porte=self._line_value("carta_porte"),
+            carta_porte=self._carta_porte_from_form(),
             carga_id=carga_id,
             lugar_carga_id=lugar_carga_id,
             lugar_descarga_id=lugar_descarga_id,
@@ -4979,6 +5351,21 @@ class MainWindow(QMainWindow):
         if isinstance(peajes, QListWidget):
             for row in range(peajes.count()):
                 peajes.item(row).setCheckState(Qt.CheckState.Unchecked)
+        self._apply_missing_viaje_fields()
+
+    def _clear_viaje_form_for_continue(self) -> None:
+        carta_porte = self.form_widgets.get("carta_porte")
+        if isinstance(carta_porte, QLineEdit):
+            carta_porte.clear()
+
+        carga = self.form_widgets.get("carga")
+        if isinstance(carga, QComboBox):
+            if carga.isEditable():
+                carga.setCurrentText("")
+            elif carga.count() > 0:
+                carga.setCurrentIndex(0)
+
+        self._apply_viaje_field_visibility()
 
     def _refresh_metrics(self) -> None:
         metrics = self.viaje_repository.dashboard_metrics()
@@ -5127,6 +5514,8 @@ class MainWindow(QMainWindow):
             self.print_to_card.setVisible(is_ricco or is_client)
         if self.print_client_card is not None:
             self.print_client_card.setVisible(is_client)
+        if self.print_ricco_include_peajes_card is not None:
+            self.print_ricco_include_peajes_card.setVisible(is_ricco)
 
     def _export_print_excel(self) -> None:
         if not self.print_rows:
@@ -5156,15 +5545,13 @@ class MainWindow(QMainWindow):
                 self.print_to_date.date().toString("yyyy-MM-dd"),
                 self.company_name,
             )
-            default_dir = template_path.parent
         else:
             default_name = f"{self._selected_print_file_stem()}.xlsx"
-            default_dir = self.database_path.parent
 
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Guardar reporte Excel",
-            str(default_dir / default_name),
+            str(self._print_output_dir() / default_name),
             "Archivos Excel (*.xlsx)",
         )
         if not file_path:
@@ -5178,6 +5565,7 @@ class MainWindow(QMainWindow):
                 self.print_to_date.date().toString("yyyy-MM-dd"),
                 self.print_rows,
                 company_name=self.company_name,
+                include_peajes_in_total=self._ricco_include_peajes_in_total(),
             )
         else:
             export_monthly_report_excel(
@@ -5205,7 +5593,7 @@ class MainWindow(QMainWindow):
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Guardar reporte PDF",
-            str(self.database_path.parent / default_name),
+            str(self._print_output_dir() / default_name),
             "Archivos PDF (*.pdf)",
         )
         if not file_path:
@@ -5240,6 +5628,10 @@ class MainWindow(QMainWindow):
         if self.print_mode_combo is None:
             return "monthly"
         return str(self.print_mode_combo.currentData() or "monthly")
+
+    def _ricco_include_peajes_in_total(self) -> bool:
+        checkbox = self.print_ricco_include_peajes_checkbox
+        return isinstance(checkbox, QCheckBox) and checkbox.isChecked()
 
     def _selected_print_title(self) -> str:
         mode = self._selected_print_mode()
@@ -5353,6 +5745,8 @@ class MainWindow(QMainWindow):
             self.new_button.setVisible(active_label == "Cargar viaje")
         if self.save_button is not None:
             self.save_button.setVisible(active_label == "Cargar viaje")
+        if self.save_continue_button is not None:
+            self.save_continue_button.setVisible(active_label == "Cargar viaje")
         if self.vehiculos_actions_widget is not None:
             self.vehiculos_actions_widget.setVisible(active_label == "Vehiculos")
         if self.peajes_actions_widget is not None:
@@ -5532,9 +5926,16 @@ class MainWindow(QMainWindow):
         if not isinstance(widget, QComboBox):
             raise ValueError("Campo de carga invalido.")
 
+        carga_no_existe = self.form_widgets.get("carga_no_existe")
+        if isinstance(carga_no_existe, QCheckBox) and carga_no_existe.isChecked():
+            return self.carga_repository.get_or_create(codigo_contenedor="Sin contenedor")
+
         codigo = widget.currentText().strip()
         if not codigo:
-            raise ValueError("Completa el codigo de carga provisto por el cliente.")
+            raise ValueError(
+                "Completa el codigo contenedor o marca No existe si el viaje no tiene."
+            )
+        codigo = _format_codigo_contenedor(codigo)
 
         selected_text = widget.itemText(widget.currentIndex()).strip()
         selected_id = widget.currentData()
@@ -5543,6 +5944,18 @@ class MainWindow(QMainWindow):
 
         carga_id = self.carga_repository.get_or_create(codigo_contenedor=codigo)
         return carga_id
+
+    def _carta_porte_from_form(self) -> str:
+        carta_porte_no_existe = self.form_widgets.get("carta_porte_no_existe")
+        if isinstance(carta_porte_no_existe, QCheckBox) and carta_porte_no_existe.isChecked():
+            return ""
+
+        value = self._line_value("carta_porte")
+        if not value:
+            raise ValueError(
+                "Completa la carta de porte o marca No existe si el viaje no tiene."
+            )
+        return value
 
     def _optional_combo_int(self, key: str) -> int | None:
         value = self._combo_value(key)
@@ -6050,6 +6463,28 @@ def _format_money(value: float | None) -> str:
     return f"$ {amount:,.0f}".replace(",", ".")
 
 
+def _codigo_contenedor_raw(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", value or "").upper()[:11]
+
+
+def _format_codigo_contenedor_partial(value: str) -> str:
+    raw = _codigo_contenedor_raw(value)
+    if len(raw) <= 4:
+        return raw
+    if len(raw) <= 10:
+        return f"{raw[:4]} {raw[4:]}"
+    return f"{raw[:4]} {raw[4:10]} - {raw[10]}"
+
+
+def _format_codigo_contenedor(value: str) -> str:
+    raw = _codigo_contenedor_raw(value)
+    if not re.fullmatch(r"[A-Z]{4}\d{7}", raw):
+        raise ValueError(
+            "El codigo contenedor debe tener el formato ABCD 123456 - 7."
+        )
+    return _format_codigo_contenedor_partial(raw)
+
+
 def _format_decimal(value: float | None) -> str:
     amount = 0.0 if value is None else float(value)
     return f"{amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -6063,7 +6498,56 @@ def _month_label(date: QDate) -> str:
     return f"{MONTH_NAMES[date.month() - 1]} {date.year()}"
 
 
-def _build_app_styles(font_sizes: dict[str, int]) -> str:
+APP_COLOR_THEMES: dict[str, dict[str, str]] = {
+    "light": {
+        "app_background": "#f5f7f8",
+        "text_color": "#182026",
+        "menu_background": "#ffffff",
+        "panel_background": "#ffffff",
+        "input_background": "#ffffff",
+        "border_color": "#d9e0e5",
+        "muted_text": "#63707a",
+        "sidebar_background": "#24333a",
+        "sidebar_text": "rgba(255, 255, 255, 0.84)",
+        "sidebar_subtitle": "rgba(255, 255, 255, 0.68)",
+        "sidebar_hover": "rgba(255, 255, 255, 0.12)",
+        "field_group_background": "#f6f9fb",
+        "table_alt_background": "#f8fafb",
+        "table_header_background": "#eef3f5",
+        "table_header_text": "#63707a",
+        "accent_color": "#1f6f8b",
+        "danger_color": "#b42318",
+        "checkbox_border": "#52616b",
+        "checkbox_disabled_border": "#aeb8bf",
+        "checkbox_disabled_background": "#edf1f4",
+    },
+    "dark": {
+        "app_background": "#111820",
+        "text_color": "#e7edf2",
+        "menu_background": "#17212b",
+        "panel_background": "#17212b",
+        "input_background": "#0f1720",
+        "border_color": "#34414d",
+        "muted_text": "#a9b5bf",
+        "sidebar_background": "#0c141b",
+        "sidebar_text": "rgba(255, 255, 255, 0.82)",
+        "sidebar_subtitle": "rgba(255, 255, 255, 0.58)",
+        "sidebar_hover": "rgba(255, 255, 255, 0.14)",
+        "field_group_background": "#1d2934",
+        "table_alt_background": "#1c2631",
+        "table_header_background": "#22303b",
+        "table_header_text": "#c6d0d8",
+        "accent_color": "#4ea3c2",
+        "danger_color": "#ff8a80",
+        "checkbox_border": "#c6d0d8",
+        "checkbox_disabled_border": "#64727e",
+        "checkbox_disabled_background": "#28333e",
+    },
+}
+
+
+def _build_app_styles(font_sizes: dict[str, int], theme_mode: str = "light") -> str:
+    colors = APP_COLOR_THEMES.get(theme_mode, APP_COLOR_THEMES["light"])
     replacements = {
         "__FONT_BASE__": str(font_sizes["base"]),
         "__FONT_BRAND__": str(font_sizes["brand"]),
@@ -6073,6 +6557,26 @@ def _build_app_styles(font_sizes: dict[str, int]) -> str:
         "__FONT_BUTTON__": str(font_sizes["button"]),
         "__FONT_METRIC__": str(font_sizes["metric"]),
         "__FONT_TABLE_HEADER__": str(font_sizes["table_header"]),
+        "__APP_BACKGROUND__": colors["app_background"],
+        "__TEXT_COLOR__": colors["text_color"],
+        "__MENU_BACKGROUND__": colors["menu_background"],
+        "__PANEL_BACKGROUND__": colors["panel_background"],
+        "__INPUT_BACKGROUND__": colors["input_background"],
+        "__BORDER_COLOR__": colors["border_color"],
+        "__MUTED_TEXT__": colors["muted_text"],
+        "__SIDEBAR_BACKGROUND__": colors["sidebar_background"],
+        "__SIDEBAR_TEXT__": colors["sidebar_text"],
+        "__SIDEBAR_SUBTITLE__": colors["sidebar_subtitle"],
+        "__SIDEBAR_HOVER__": colors["sidebar_hover"],
+        "__FIELD_GROUP_BACKGROUND__": colors["field_group_background"],
+        "__TABLE_ALT_BACKGROUND__": colors["table_alt_background"],
+        "__TABLE_HEADER_BACKGROUND__": colors["table_header_background"],
+        "__TABLE_HEADER_TEXT__": colors["table_header_text"],
+        "__ACCENT_COLOR__": colors["accent_color"],
+        "__DANGER_COLOR__": colors["danger_color"],
+        "__CHECKBOX_BORDER__": colors["checkbox_border"],
+        "__CHECKBOX_DISABLED_BORDER__": colors["checkbox_disabled_border"],
+        "__CHECKBOX_DISABLED_BACKGROUND__": colors["checkbox_disabled_background"],
     }
     stylesheet = APP_STYLES
     for placeholder, value in replacements.items():
@@ -6082,35 +6586,35 @@ def _build_app_styles(font_sizes: dict[str, int]) -> str:
 
 APP_STYLES = """
 QWidget {
-    background: #f5f7f8;
-    color: #182026;
+    background: __APP_BACKGROUND__;
+    color: __TEXT_COLOR__;
     font-family: "Segoe UI", "San Francisco", Arial, sans-serif;
     font-size: __FONT_BASE__px;
 }
 
 QMenuBar {
-    background: #ffffff;
-    border-bottom: 1px solid #d9e0e5;
+    background: __MENU_BACKGROUND__;
+    border-bottom: 1px solid __BORDER_COLOR__;
 }
 
 QPushButton {
     min-height: 34px;
-    border: 1px solid #d9e0e5;
+    border: 1px solid __BORDER_COLOR__;
     border-radius: 8px;
-    background: #ffffff;
+    background: __PANEL_BACKGROUND__;
     padding: 0 12px;
     font-size: __FONT_BUTTON__px;
 }
 
 QPushButton:hover {
-    border-color: #1f6f8b;
+    border-color: __ACCENT_COLOR__;
 }
 
 QLineEdit {
     min-height: 34px;
-    border: 1px solid #d9e0e5;
+    border: 1px solid __BORDER_COLOR__;
     border-radius: 8px;
-    background: #ffffff;
+    background: __INPUT_BACKGROUND__;
     padding: 0 12px;
 }
 
@@ -6120,9 +6624,9 @@ QDoubleSpinBox,
 QSpinBox,
 QTextEdit,
 QListWidget {
-    border: 1px solid #d9e0e5;
+    border: 1px solid __BORDER_COLOR__;
     border-radius: 8px;
-    background: #ffffff;
+    background: __INPUT_BACKGROUND__;
     padding: 6px 8px;
 }
 
@@ -6143,7 +6647,7 @@ QScrollArea {
 }
 
 QFrame#sidebar {
-    background: #24333a;
+    background: __SIDEBAR_BACKGROUND__;
 }
 
 QLabel#brand {
@@ -6155,7 +6659,7 @@ QLabel#brand {
 
 QLabel#sidebarSubtitle {
     background: transparent;
-    color: rgba(255, 255, 255, 0.68);
+    color: __SIDEBAR_SUBTITLE__;
     font-size: __FONT_SMALL__px;
 }
 
@@ -6164,7 +6668,7 @@ QPushButton#navButtonActive {
     min-height: 36px;
     border: none;
     border-radius: 8px;
-    color: rgba(255, 255, 255, 0.84);
+    color: __SIDEBAR_TEXT__;
     text-align: left;
     padding-left: 12px;
     background: transparent;
@@ -6172,7 +6676,7 @@ QPushButton#navButtonActive {
 
 QPushButton#navButton:hover,
 QPushButton#navButtonActive {
-    background: rgba(255, 255, 255, 0.12);
+    background: __SIDEBAR_HOVER__;
     color: #ffffff;
 }
 
@@ -6185,8 +6689,8 @@ QPushButton#sidebarToggleButton {
 QFrame#topbar,
 QFrame#panel,
 QFrame#metric {
-    background: #ffffff;
-    border: 1px solid #d9e0e5;
+    background: __PANEL_BACKGROUND__;
+    border: 1px solid __BORDER_COLOR__;
 }
 
 QFrame#topbar {
@@ -6200,10 +6704,22 @@ QFrame#metric {
     border-radius: 8px;
 }
 
+QFrame#viajeFieldGroup {
+    background: __FIELD_GROUP_BACKGROUND__;
+    border: 1px solid __BORDER_COLOR__;
+    border-radius: 8px;
+}
+
+QLabel#viajeFieldGroupTitle {
+    background: transparent;
+    font-size: __FONT_SMALL__px;
+    font-weight: 700;
+}
+
 QFrame#panelHeader {
     min-height: 56px;
-    background: #ffffff;
-    border-bottom: 1px solid #d9e0e5;
+    background: __PANEL_BACKGROUND__;
+    border-bottom: 1px solid __BORDER_COLOR__;
 }
 
 QLabel#pageTitle {
@@ -6220,7 +6736,7 @@ QLabel#sectionTitle {
 
 QLabel#muted {
     background: transparent;
-    color: #63707a;
+    color: __MUTED_TEXT__;
     font-size: __FONT_SMALL__px;
 }
 
@@ -6230,15 +6746,47 @@ QLabel#metricValue {
     font-weight: 700;
 }
 
+QCheckBox {
+    background: transparent;
+    spacing: 8px;
+}
+
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 2px solid __CHECKBOX_BORDER__;
+    border-radius: 4px;
+    background: __INPUT_BACKGROUND__;
+}
+
+QCheckBox::indicator:hover {
+    border-color: __ACCENT_COLOR__;
+}
+
+QCheckBox::indicator:checked {
+    border-color: __ACCENT_COLOR__;
+    background: __ACCENT_COLOR__;
+}
+
+QCheckBox::indicator:checked:hover {
+    border-color: __ACCENT_COLOR__;
+    background: __ACCENT_COLOR__;
+}
+
+QCheckBox::indicator:disabled {
+    border-color: __CHECKBOX_DISABLED_BORDER__;
+    background: __CHECKBOX_DISABLED_BACKGROUND__;
+}
+
 QPushButton#primaryButton {
-    border-color: #1f6f8b;
-    background: #1f6f8b;
+    border-color: __ACCENT_COLOR__;
+    background: __ACCENT_COLOR__;
     color: #ffffff;
 }
 
 QPushButton#dangerButton {
-    border-color: #b42318;
-    color: #b42318;
+    border-color: __DANGER_COLOR__;
+    color: __DANGER_COLOR__;
 }
 
 QWidget#actionButtons {
@@ -6246,17 +6794,17 @@ QWidget#actionButtons {
 }
 
 QTableWidget {
-    background: #ffffff;
-    alternate-background-color: #f8fafb;
+    background: __PANEL_BACKGROUND__;
+    alternate-background-color: __TABLE_ALT_BACKGROUND__;
     border: none;
-    gridline-color: #d9e0e5;
+    gridline-color: __BORDER_COLOR__;
 }
 
 QHeaderView::section {
-    background: #eef3f5;
-    color: #63707a;
+    background: __TABLE_HEADER_BACKGROUND__;
+    color: __TABLE_HEADER_TEXT__;
     border: none;
-    border-bottom: 1px solid #d9e0e5;
+    border-bottom: 1px solid __BORDER_COLOR__;
     padding: 10px;
     font-size: __FONT_TABLE_HEADER__px;
     font-weight: 700;

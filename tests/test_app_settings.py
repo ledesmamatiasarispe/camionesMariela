@@ -65,18 +65,37 @@ class AppSettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             settings_path = Path(temp_dir) / "settings.json"
             database_path = str(Path(temp_dir) / "otra-base.sqlite3")
+            print_output_dir = str(Path(temp_dir) / "impresiones")
 
             save_app_settings(
                 settings_path,
                 {
                     "company_name": "Mi Empresa",
                     "database_path": database_path,
+                    "print_output_dir": print_output_dir,
                 },
             )
 
             settings = load_app_settings(settings_path)
 
         self.assertEqual(settings["database_path"], database_path)
+        self.assertEqual(settings["print_output_dir"], print_output_dir)
+
+    def test_preserves_theme_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = Path(temp_dir) / "settings.json"
+
+            save_app_settings(
+                settings_path,
+                {
+                    "company_name": "Mi Empresa",
+                    "theme_mode": "dark",
+                },
+            )
+
+            settings = load_app_settings(settings_path)
+
+        self.assertEqual(settings["theme_mode"], "dark")
 
 
 if __name__ == "__main__":

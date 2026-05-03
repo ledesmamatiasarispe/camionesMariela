@@ -178,6 +178,7 @@ def export_ricco_report_excel(
     viajes: list[ViajeResumen],
     *,
     company_name: str,
+    include_peajes_in_total: bool = False,
 ) -> None:
     workbook = load_workbook(template_path)
     worksheet = workbook[workbook.sheetnames[0]]
@@ -201,6 +202,10 @@ def export_ricco_report_excel(
 
     for row_index, viaje in enumerate(viajes, start=RICCO_DATA_START_ROW):
         demora_ricco = _ricco_demora_amount(viaje)
+        total_ricco = _ricco_total_amount(
+            viaje,
+            include_peajes=include_peajes_in_total,
+        )
         worksheet[f"B{row_index}"] = _excel_date(viaje.fecha)
         worksheet[f"C{row_index}"] = viaje.carta_porte or None
         worksheet[f"D{row_index}"] = viaje.carga or None
@@ -213,10 +218,10 @@ def export_ricco_report_excel(
         worksheet[f"K{row_index}"] = viaje.tarifa
         worksheet[f"L{row_index}"] = _excel_date(viaje.fecha_descarga_vacio)
         worksheet[f"M{row_index}"] = demora_ricco or None
-        worksheet[f"N{row_index}"] = viaje.costo_total
+        worksheet[f"N{row_index}"] = total_ricco
         worksheet[f"O{row_index}"] = 0
         worksheet[f"P{row_index}"] = viaje.gas_oil_lts
-        worksheet[f"Q{row_index}"] = viaje.costo_total
+        worksheet[f"Q{row_index}"] = total_ricco
         worksheet[f"R{row_index}"] = viaje.observaciones or None
 
     worksheet[f"B{total_row}"] = "Total a facturar"
@@ -351,6 +356,13 @@ def _ricco_tipo_carga(tipo_carga: str) -> str:
 
 def _ricco_demora_amount(viaje: ViajeResumen) -> float:
     return float(viaje.demora or 0) + float(viaje.vacio or 0)
+
+
+def _ricco_total_amount(viaje: ViajeResumen, *, include_peajes: bool) -> float:
+    total = float(viaje.tarifa or 0) + _ricco_demora_amount(viaje)
+    if include_peajes:
+        total += float(viaje.peajes or 0)
+    return total
 
 
 def _camion_patente(camion: str) -> str:

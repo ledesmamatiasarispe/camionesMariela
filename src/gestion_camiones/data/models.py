@@ -85,6 +85,8 @@ class Vehiculo:
     km_actual: int
     chofer_predeterminado_id: int | None
     chofer_predeterminado_nombre: str
+    semi_predeterminado_id: int | None
+    semi_predeterminado_nombre: str
     observaciones: str
     activo: bool
 

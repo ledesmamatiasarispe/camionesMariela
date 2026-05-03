@@ -108,9 +108,31 @@ class ReportExporterTests(unittest.TestCase):
             self.assertEqual(worksheet["F17"].value, "gral")
             self.assertEqual(worksheet["K17"].value, 100000)
             self.assertEqual(worksheet["M17"].value, 7500)
+            self.assertEqual(worksheet["N17"].value, 107500)
+            self.assertEqual(worksheet["Q17"].value, 107500)
+            self.assertEqual(worksheet["R17"].value, "Ok")
+
+    def test_export_ricco_can_include_tolls_in_total(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            template_path = Path(temp_dir) / "RICCO.xlsx"
+            output_path = Path(temp_dir) / "salida.xlsx"
+            self._build_ricco_template(template_path)
+
+            export_ricco_report_excel(
+                template_path,
+                output_path,
+                "2026-04-01",
+                "2026-04-30",
+                [_sample_viaje()],
+                company_name="Mi Empresa SRL",
+                include_peajes_in_total=True,
+            )
+
+            workbook = load_workbook(output_path)
+            worksheet = workbook.active
+
             self.assertEqual(worksheet["N17"].value, 109000)
             self.assertEqual(worksheet["Q17"].value, 109000)
-            self.assertEqual(worksheet["R17"].value, "Ok")
 
     def test_export_ricco_uses_imo_for_dangerous_cargo(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

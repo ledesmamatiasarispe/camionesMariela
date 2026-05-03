@@ -42,6 +42,14 @@ Abrir `index.html` directamente en el navegador. No requiere servidor ni instala
 
 ## Como ejecutar la app Python en desarrollo
 
+Forma rapida en Windows:
+
+```bat
+Abrir Gestion Camiones.cmd
+```
+
+Ese launcher ejecuta siempre el codigo desde `src`, crea `.venv` si falta e instala dependencias si el entorno quedo incompleto. No usa `dist` ni el ejecutable empaquetado, por lo que no deberia romperse cuando se limpian builds o se publica una actualizacion.
+
 En una maquina de desarrollo:
 
 ```bash

@@ -174,6 +174,19 @@ QFrame#metric {{
     border-radius: 8px;
 }}
 
+QFrame#viajeFieldGroup {{
+    background: #f6f9fb;
+    border: 1px solid __BORDER_COLOR__;
+    border-radius: 8px;
+}}
+
+QLabel#viajeFieldGroupTitle {{
+    background: transparent;
+    color: __SECTION_TITLE_TEXT__;
+    font-size: 13px;
+    font-weight: 700;
+}}
+
 QFrame#panelHeader {{
     min-height: 56px;
     background: __PANEL_HEADER_BACKGROUND__;
@@ -205,6 +218,38 @@ QLabel#metricValue {{
     color: __METRIC_VALUE_TEXT__;
     font-size: 24px;
     font-weight: 700;
+}}
+
+QCheckBox {{
+    background: transparent;
+    spacing: 8px;
+}}
+
+QCheckBox::indicator {{
+    width: 18px;
+    height: 18px;
+    border: 2px solid #52616b;
+    border-radius: 4px;
+    background: #ffffff;
+}}
+
+QCheckBox::indicator:hover {{
+    border-color: __ACCENT_COLOR__;
+}}
+
+QCheckBox::indicator:checked {{
+    border-color: __ACCENT_COLOR__;
+    background: __ACCENT_COLOR__;
+}}
+
+QCheckBox::indicator:checked:hover {{
+    border-color: __ACCENT_COLOR__;
+    background: __ACCENT_COLOR__;
+}}
+
+QCheckBox::indicator:disabled {{
+    border-color: #aeb8bf;
+    background: #edf1f4;
 }}
 
 QPushButton#primaryButton {{

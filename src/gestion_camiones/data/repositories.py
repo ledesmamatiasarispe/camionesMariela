@@ -1413,10 +1413,19 @@ class VehiculoRepository:
                     trim(choferes.nombre || ' ' || choferes.apellido),
                     ''
                 ) AS chofer_predeterminado_nombre,
+                vehiculos.semi_predeterminado_id,
+                COALESCE(
+                    semi_default.nombre_identificatorio || ' - ' || semi_default.patente,
+                    ''
+                ) AS semi_predeterminado_nombre,
                 COALESCE(vehiculos.observaciones, '') AS observaciones,
                 vehiculos.activo
             FROM vehiculos
             LEFT JOIN choferes ON choferes.id = vehiculos.chofer_predeterminado_id
+            LEFT JOIN vehiculos AS semi_default
+                ON semi_default.id = vehiculos.semi_predeterminado_id
+                AND semi_default.tipo = 'SEMI'
+                AND semi_default.activo = 1
         """
         clauses = []
         params: list[str | int] = []
@@ -1432,7 +1441,7 @@ class VehiculoRepository:
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
 
-        query += " ORDER BY tipo, nombre_identificatorio, patente"
+        query += " ORDER BY vehiculos.tipo, vehiculos.nombre_identificatorio, vehiculos.patente"
 
         with closing(self._connect()) as connection:
             rows = connection.execute(query, tuple(params)).fetchall()
@@ -1446,6 +1455,8 @@ class VehiculoRepository:
                 km_actual=int(row["km_actual"]),
                 chofer_predeterminado_id=row["chofer_predeterminado_id"],
                 chofer_predeterminado_nombre=row["chofer_predeterminado_nombre"],
+                semi_predeterminado_id=row["semi_predeterminado_id"],
+                semi_predeterminado_nombre=row["semi_predeterminado_nombre"],
                 observaciones=row["observaciones"],
                 activo=bool(row["activo"]),
             )
@@ -1461,6 +1472,7 @@ class VehiculoRepository:
         observaciones: str,
         km_actual: int = 0,
         chofer_predeterminado_id: int | None = None,
+        semi_predeterminado_id: int | None = None,
     ) -> int:
         with closing(self._connect()) as connection:
             cursor = connection.execute(
@@ -1471,8 +1483,9 @@ class VehiculoRepository:
                     patente,
                     km_actual,
                     chofer_predeterminado_id,
+                    semi_predeterminado_id,
                     observaciones
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     tipo,
@@ -1480,6 +1493,7 @@ class VehiculoRepository:
                     patente,
                     km_actual,
                     chofer_predeterminado_id if tipo == "CAMION" else None,
+                    semi_predeterminado_id if tipo == "CAMION" else None,
                     observaciones,
                 ),
             )
@@ -1495,6 +1509,7 @@ class VehiculoRepository:
         patente: str,
         km_actual: int,
         chofer_predeterminado_id: int | None,
+        semi_predeterminado_id: int | None,
         observaciones: str,
     ) -> None:
         with closing(self._connect()) as connection:
@@ -1507,6 +1522,7 @@ class VehiculoRepository:
                     patente = ?,
                     km_actual = ?,
                     chofer_predeterminado_id = ?,
+                    semi_predeterminado_id = ?,
                     observaciones = ?
                 WHERE id = ?
                 """,
@@ -1516,6 +1532,7 @@ class VehiculoRepository:
                     patente,
                     km_actual,
                     chofer_predeterminado_id if tipo == "CAMION" else None,
+                    semi_predeterminado_id if tipo == "CAMION" else None,
                     observaciones,
                     vehiculo_id,
                 ),

@@ -18,9 +18,11 @@ def load_app_settings(settings_path: Path) -> dict[str, object]:
         "company_name": DEFAULT_COMPANY_NAME,
         "cliente_viaje_fields": {},
         "database_path": "",
+        "print_output_dir": "",
         "dialog_sizes": {},
         "splitter_sizes": {},
         "font_sizes": {},
+        "theme_mode": "light",
     }
     if not settings_path.exists():
         return data
@@ -37,6 +39,10 @@ def load_app_settings(settings_path: Path) -> dict[str, object]:
     database_path = stored.get("database_path")
     if isinstance(database_path, str):
         data["database_path"] = database_path.strip()
+
+    print_output_dir = stored.get("print_output_dir")
+    if isinstance(print_output_dir, str):
+        data["print_output_dir"] = print_output_dir.strip()
 
     cliente_viaje_fields = stored.get("cliente_viaje_fields")
     if isinstance(cliente_viaje_fields, dict):
@@ -78,6 +84,9 @@ def load_app_settings(settings_path: Path) -> dict[str, object]:
             for key, value in font_sizes.items()
             if isinstance(value, int | float) and 8 <= int(value) <= 36
         }
+    theme_mode = stored.get("theme_mode")
+    if theme_mode in {"light", "dark"}:
+        data["theme_mode"] = theme_mode
     return data
 
 
@@ -99,9 +108,15 @@ def save_app_settings(settings_path: Path, settings: dict[str, object]) -> None:
         "company_name": normalize_company_name(str(settings.get("company_name", ""))),
         "cliente_viaje_fields": cliente_viaje_fields,
         "database_path": str(settings.get("database_path", "")).strip(),
+        "print_output_dir": str(settings.get("print_output_dir", "")).strip(),
         "dialog_sizes": dialog_sizes,
         "splitter_sizes": splitter_sizes,
         "font_sizes": font_sizes,
+        "theme_mode": (
+            str(settings.get("theme_mode"))
+            if settings.get("theme_mode") in {"light", "dark"}
+            else "light"
+        ),
     }
     settings_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=True),

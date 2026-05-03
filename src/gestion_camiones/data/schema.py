@@ -68,10 +68,12 @@ CREATE TABLE IF NOT EXISTS vehiculos (
     patente TEXT NOT NULL UNIQUE,
     km_actual INTEGER NOT NULL DEFAULT 0,
     chofer_predeterminado_id INTEGER,
+    semi_predeterminado_id INTEGER,
     observaciones TEXT,
     activo INTEGER NOT NULL DEFAULT 1,
     creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (chofer_predeterminado_id) REFERENCES choferes(id)
+    FOREIGN KEY (chofer_predeterminado_id) REFERENCES choferes(id),
+    FOREIGN KEY (semi_predeterminado_id) REFERENCES vehiculos(id)
 );
 
 CREATE TABLE IF NOT EXISTS vehiculo_mantenimientos (
@@ -709,6 +711,8 @@ def _migrate_vehiculos(connection: sqlite3.Connection) -> None:
         )
     if "chofer_predeterminado_id" not in columns:
         connection.execute("ALTER TABLE vehiculos ADD COLUMN chofer_predeterminado_id INTEGER")
+    if "semi_predeterminado_id" not in columns:
+        connection.execute("ALTER TABLE vehiculos ADD COLUMN semi_predeterminado_id INTEGER")
 
     if _table_exists(connection, "camiones"):
         connection.execute(
