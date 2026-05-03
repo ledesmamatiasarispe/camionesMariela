@@ -163,7 +163,7 @@ class SelectReleaseAssetTests(unittest.TestCase):
             content = script_path.read_text(encoding="utf-8")
             self.assertIn("hdiutil attach", content)
             self.assertIn(str(package_path), content)
-            self.assertIn("open \"$TARGET_APP\"", content)
+            self.assertIn("open -n \"$TARGET_APP\"", content)
 
     def test_writes_windows_installer_script_for_zip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

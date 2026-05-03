@@ -302,7 +302,7 @@ def _write_macos_installer_script(package_path: Path, scripts_dir: Path) -> Path
     if package_path.suffix.lower() != ".dmg":
         raise UpdateInstallError("macOS requiere un paquete .dmg para instalacion automatica.")
 
-    target_app = _current_macos_app_path() or Path("/Applications/Gestion Camiones.app")
+    target_app = _preferred_macos_install_target()
     log_path = scripts_dir / "install-macos.log"
     script_path = scripts_dir / "install-macos.sh"
     script = f"""\
@@ -355,7 +355,7 @@ end run
 OSA
 fi
 
-open "$TARGET_APP"
+open -n "$TARGET_APP"
 echo "Instalacion automatica macOS finalizada: $(date)"
 """
     script_path.write_text(textwrap.dedent(script), encoding="utf-8")
@@ -422,6 +422,22 @@ def _current_macos_app_path() -> Path | None:
     if app_path.suffix == ".app" and app_path.exists():
         return app_path
     return None
+
+
+def _preferred_macos_install_target() -> Path:
+    current_app_path = _current_macos_app_path()
+    applications_path = Path("/Applications/Gestion Camiones.app")
+    user_applications_path = Path.home() / "Applications" / "Gestion Camiones.app"
+
+    if applications_path.exists():
+        return applications_path
+    if current_app_path is not None and "/Applications/" in str(current_app_path):
+        return current_app_path
+    if user_applications_path.exists():
+        return user_applications_path
+    if current_app_path is not None:
+        return current_app_path
+    return applications_path
 
 
 def _shell_quote(path: Path) -> str:
@@ -519,11 +535,11 @@ def _asset_match_score(asset_name: str, system: str, machine: str) -> int:
         if not any(token in asset_name for token in (".msi", ".exe", ".zip", "windows", "win")):
             return 0
         score += 100
-        if ".msi" in asset_name:
+        if ".zip" in asset_name:
             score += 30
         elif ".exe" in asset_name:
             score += 20
-        elif ".zip" in asset_name:
+        elif ".msi" in asset_name:
             score += 10
         if any(token in asset_name for token in ("windows", "win")):
             score += 10
