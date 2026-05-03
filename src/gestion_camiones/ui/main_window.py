@@ -4081,13 +4081,9 @@ class MainWindow(QMainWindow):
             return
 
         def save() -> None:
+            hay_demora = bool(values["hay_demora"])
+            descarga_vacio = bool(values["descarga_vacio"])
             lugar_descarga_vacio_id = self._optional_int(values["lugar_descarga_vacio_id"])
-            hay_demora = bool(viaje.get("hay_demora")) or float(values["demora"]) != 0
-            descarga_vacio = (
-                bool(viaje.get("descarga_vacio"))
-                or float(values["vacio"]) != 0
-                or lugar_descarga_vacio_id is not None
-            )
             self.viaje_repository.update_full(
                 viaje_id,
                 ViajeCreate(
@@ -4643,10 +4639,17 @@ class MainWindow(QMainWindow):
                 "required": False,
             },
             {
+                "key": "hay_demora",
+                "label": "Hay demora",
+                "type": "checkbox",
+                "value": bool(viaje["hay_demora"]),
+            },
+            {
                 "key": "demora",
                 "label": "Demora",
                 "type": "money",
                 "value": viaje["demora"],
+                "visible_when": {"field": "hay_demora", "equals": True},
             },
             {
                 "key": "fecha_descarga_demora",
@@ -4654,12 +4657,20 @@ class MainWindow(QMainWindow):
                 "type": "date",
                 "value": viaje["fecha_descarga_demora"],
                 "required": False,
+                "visible_when": {"field": "hay_demora", "equals": True},
+            },
+            {
+                "key": "descarga_vacio",
+                "label": "Descarga vacio",
+                "type": "checkbox",
+                "value": bool(viaje["descarga_vacio"]),
             },
             {
                 "key": "vacio",
                 "label": "Vacio",
                 "type": "money",
                 "value": viaje["vacio"],
+                "visible_when": {"field": "descarga_vacio", "equals": True},
             },
             {
                 "key": "fecha_descarga_vacio",
@@ -4667,6 +4678,7 @@ class MainWindow(QMainWindow):
                 "type": "date",
                 "value": viaje["fecha_descarga_vacio"],
                 "required": False,
+                "visible_when": {"field": "descarga_vacio", "equals": True},
             },
             {
                 "key": "lugar_descarga_vacio_id",
@@ -4675,6 +4687,7 @@ class MainWindow(QMainWindow):
                 "value": viaje["lugar_descarga_vacio_id"],
                 "options": [("Sin lugar", None)] + self._lugar_options("DESCARGA"),
                 "required": False,
+                "visible_when": {"field": "descarga_vacio", "equals": True},
             },
             {
                 "key": "gas_oil_lts",
@@ -5728,6 +5741,10 @@ class RecordDialog(QDialog):
                 widget.setRange(0, 999_999_999)
                 widget.setSingleStep(int(field.get("step", 1000)))
                 widget.setValue(int(value or 0))
+            elif field_type == "checkbox":
+                widget = QCheckBox()
+                widget.setChecked(bool(value))
+                widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             elif field_type == "combo":
                 widget = QComboBox()
                 _configure_combo_popup(widget)
@@ -5889,7 +5906,7 @@ class RecordDialog(QDialog):
         QTimer.singleShot(0, self._focus_first_field)
 
     def _can_focus_field(self, widget: QWidget) -> bool:
-        if isinstance(widget, QAbstractSpinBox | QComboBox | QLineEdit | QTextEdit):
+        if isinstance(widget, QAbstractSpinBox | QCheckBox | QComboBox | QLineEdit | QTextEdit):
             return True
         return False
 
@@ -5963,6 +5980,8 @@ class RecordDialog(QDialog):
                 values[key] = int(widget.value())
             elif isinstance(widget, QComboBox):
                 values[key] = widget.currentData()
+            elif isinstance(widget, QCheckBox):
+                values[key] = widget.isChecked()
         return values
 
     def _connect_visibility_rules(self) -> None:
@@ -5977,6 +5996,8 @@ class RecordDialog(QDialog):
                 widget.currentIndexChanged.connect(
                     lambda *_args: self._apply_visibility_rules()
                 )
+            elif isinstance(widget, QCheckBox):
+                widget.toggled.connect(lambda *_args: self._apply_visibility_rules())
 
     def _apply_visibility_rules(self) -> None:
         for field in self.fields:
@@ -5989,6 +6010,8 @@ class RecordDialog(QDialog):
                 parent_widget = self.widgets.get(parent_key)
                 if isinstance(parent_widget, QComboBox):
                     visible = parent_widget.currentData() == expected
+                elif isinstance(parent_widget, QCheckBox):
+                    visible = parent_widget.isChecked() == bool(expected)
             widget = self.widgets.get(key)
             if widget is not None:
                 widget.setVisible(visible)

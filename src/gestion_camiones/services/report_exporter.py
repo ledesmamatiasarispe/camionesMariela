@@ -211,7 +211,7 @@ def export_ricco_report_excel(
         worksheet[f"J{row_index}"] = _camion_patente(viaje.camion) or None
         worksheet[f"K{row_index}"] = viaje.tarifa
         worksheet[f"L{row_index}"] = _excel_date(viaje.fecha_descarga_vacio)
-        worksheet[f"M{row_index}"] = viaje.demora
+        worksheet[f"M{row_index}"] = viaje.demora + viaje.vacio
         worksheet[f"N{row_index}"] = viaje.costo_total
         worksheet[f"O{row_index}"] = 0
         worksheet[f"P{row_index}"] = viaje.gas_oil_lts
@@ -342,10 +342,10 @@ def _ricco_subclient_name(cliente_label: str) -> str:
 
 
 def _ricco_tipo_carga(tipo_carga: str) -> str:
-    normalized = tipo_carga.strip()
-    if not normalized or normalized.upper() == "GENERAL":
-        return ""
-    return normalized
+    normalized = tipo_carga.strip().lower()
+    if "peligrosa" in normalized or normalized == "imo":
+        return "imo"
+    return "gral"
 
 
 def _camion_patente(camion: str) -> str:

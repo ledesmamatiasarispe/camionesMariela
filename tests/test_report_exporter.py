@@ -105,10 +105,64 @@ class ReportExporterTests(unittest.TestCase):
             self.assertEqual(worksheet["H12"].value.strftime("%Y-%m-%d"), "2026-04-30")
             self.assertEqual(worksheet["C17"].value, "CP-1001")
             self.assertEqual(worksheet["E17"].value, "Cliente Uno")
+            self.assertEqual(worksheet["F17"].value, "gral")
             self.assertEqual(worksheet["K17"].value, 100000)
+            self.assertEqual(worksheet["M17"].value, 7500)
             self.assertEqual(worksheet["N17"].value, 109000)
             self.assertEqual(worksheet["Q17"].value, 109000)
             self.assertEqual(worksheet["R17"].value, "Ok")
+
+    def test_export_ricco_uses_imo_for_dangerous_cargo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            template_path = Path(temp_dir) / "RICCO.xlsx"
+            output_path = Path(temp_dir) / "salida.xlsx"
+            self._build_ricco_template(template_path)
+
+            viaje = ViajeResumen(
+                **{
+                    **_sample_viaje().__dict__,
+                    "tipo_carga": "Carga peligrosa",
+                }
+            )
+            export_ricco_report_excel(
+                template_path,
+                output_path,
+                "2026-04-01",
+                "2026-04-30",
+                [viaje],
+                company_name="Mi Empresa SRL",
+            )
+
+            workbook = load_workbook(output_path)
+            worksheet = workbook.active
+
+            self.assertEqual(worksheet["F17"].value, "imo")
+
+    def test_export_ricco_uses_imo_for_imo_cargo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            template_path = Path(temp_dir) / "RICCO.xlsx"
+            output_path = Path(temp_dir) / "salida.xlsx"
+            self._build_ricco_template(template_path)
+
+            viaje = ViajeResumen(
+                **{
+                    **_sample_viaje().__dict__,
+                    "tipo_carga": "IMO",
+                }
+            )
+            export_ricco_report_excel(
+                template_path,
+                output_path,
+                "2026-04-01",
+                "2026-04-30",
+                [viaje],
+                company_name="Mi Empresa SRL",
+            )
+
+            workbook = load_workbook(output_path)
+            worksheet = workbook.active
+
+            self.assertEqual(worksheet["F17"].value, "imo")
 
     def test_build_ricco_export_filename(self) -> None:
         filename = build_ricco_export_filename(

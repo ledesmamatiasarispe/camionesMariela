@@ -124,6 +124,70 @@ class ViajeRepositoryTests(unittest.TestCase):
             self.assertIsNone(row[4])
             self.assertIsNone(row[5])
 
+    def test_update_full_stores_nulls_when_demora_and_vacio_are_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "gestion.sqlite3"
+            initialize_database(database_path, seed=True)
+            repository = ViajeRepository(database_path)
+
+            repository.update_full(
+                2,
+                ViajeCreate(
+                    fecha="2026-06-20",
+                    cliente_id=1,
+                    carta_porte="CP-NULL",
+                    carga_id=1,
+                    lugar_carga_id=1,
+                    lugar_descarga_id=2,
+                    lugar_descarga_vacio_id=None,
+                    observaciones="",
+                    chofer_id=1,
+                    tipo_carga="GENERAL",
+                    camion_id=1,
+                    semi_id=None,
+                    tarifa=10000,
+                    fecha_descarga_tarifa="2026-06-21",
+                    hay_demora=False,
+                    demora=None,
+                    fecha_descarga_demora=None,
+                    descarga_vacio=False,
+                    vacio=None,
+                    fecha_descarga_vacio=None,
+                    gas_oil_lts=0,
+                    peaje_ids=(),
+                ),
+                estado="Editado",
+            )
+
+            connection = sqlite3.connect(database_path)
+            try:
+                row = connection.execute(
+                    """
+                    SELECT
+                        hay_demora,
+                        demora,
+                        fecha_descarga_demora,
+                        descarga_vacio,
+                        vacio,
+                        fecha_descarga_vacio,
+                        lugar_descarga_vacio_id
+                    FROM viajes
+                    WHERE id = 2
+                    """
+                ).fetchone()
+            finally:
+                connection.close()
+
+            self.assertIsNotNone(row)
+            assert row is not None
+            self.assertEqual(row[0], 0)
+            self.assertIsNone(row[1])
+            self.assertIsNone(row[2])
+            self.assertEqual(row[3], 0)
+            self.assertIsNone(row[4])
+            self.assertIsNone(row[5])
+            self.assertIsNone(row[6])
+
 
 if __name__ == "__main__":
     unittest.main()
