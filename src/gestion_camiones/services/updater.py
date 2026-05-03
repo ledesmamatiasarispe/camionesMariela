@@ -166,6 +166,7 @@ def launch_update_installer(package_path: Path, app_data_dir: Path) -> Path:
                 "Bypass",
                 "-File",
                 str(script_path),
+                str(os.getpid()),
             ],
             close_fds=True,
             creationflags=creationflags,
@@ -374,17 +375,21 @@ def _write_windows_installer_script(package_path: Path, scripts_dir: Path) -> Pa
     script_path = scripts_dir / "install-windows.ps1"
     script = f"""\
 $ErrorActionPreference = "Stop"
+param(
+    [int]$CurrentPid
+)
 $Package = {_powershell_quote(package_path)}
 $InstallDir = {_powershell_quote(install_dir)}
 $ExecutablePath = {_powershell_quote(executable_path)}
 $StagingDir = {_powershell_quote(staging_dir)}
 $LogPath = {_powershell_quote(log_path)}
-$CurrentPid = {os.getpid()}
 
 Start-Transcript -Path $LogPath -Append | Out-Null
 try {{
     Write-Output "Iniciando instalacion automatica Windows: $(Get-Date)"
-    Wait-Process -Id $CurrentPid -ErrorAction SilentlyContinue
+    if ($CurrentPid) {{
+        try {{ Wait-Process -Id $CurrentPid -ErrorAction SilentlyContinue }} catch {{ }}
+    }}
 
     if (Test-Path -LiteralPath $StagingDir) {{
         Remove-Item -LiteralPath $StagingDir -Recurse -Force
