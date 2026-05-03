@@ -40,6 +40,10 @@ jobs:
           python -m pip install -r requirements-dev.txt
           python -m pip install -e .
 
+      - name: Debug: print package version
+        run: |
+          python -c "import gestion_camiones; print('gestion_camiones.__version__='+gestion_camiones.__version__)"
+
       - name: Prepare Apple signing keychain
         if: runner.os == 'macOS'
         env:
