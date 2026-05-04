@@ -8,7 +8,6 @@ import ssl
 import subprocess
 import sys
 import textwrap
-from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
@@ -310,7 +309,8 @@ curl -fL --user-agent "gestion-camiones-updater" -o "$PACKAGE_PATH" "$DOWNLOAD_U
 
 if [[ -n "$CHECKSUM_URL" ]]; then
   echo "Verificando checksum..."
-  EXPECTED=$(curl -fsSL --user-agent "gestion-camiones-updater" "$CHECKSUM_URL" | awk '{{print $1}}')
+  EXPECTED=$(curl -fsSL --user-agent "gestion-camiones-updater" \\
+    "$CHECKSUM_URL" | awk '{{print $1}}')
   ACTUAL=$(shasum -a 256 "$PACKAGE_PATH" | awk '{{print $1}}')
   if [[ "$ACTUAL" != "$EXPECTED" ]]; then
     echo "Checksum incorrecto: esperado $EXPECTED, obtenido $ACTUAL"
