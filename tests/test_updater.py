@@ -9,14 +9,12 @@ from pathlib import Path
 from gestion_camiones.services.updater import (
     ReleaseAsset,
     ReleaseInfo,
-    _parse_checksum_content,
     _write_macos_installer_script,
     _write_windows_installer_script,
     backups_dir,
     create_database_backup,
     select_checksum_asset,
     select_release_asset,
-    updates_dir,
 )
 
 
@@ -116,23 +114,11 @@ class SelectReleaseAssetTests(unittest.TestCase):
 
         self.assertEqual(asset, checksum)
 
-    def test_parse_checksum_content_accepts_standard_sha256_format(self) -> None:
-        checksum = "a" * 64
-
-        parsed_checksum = _parse_checksum_content(
-            f"{checksum}  GestionCamiones-Windows-x64.zip\n",
-            "GestionCamiones-Windows-x64.zip",
-        )
-
-        self.assertEqual(parsed_checksum, checksum)
-
-    def test_update_and_backup_dirs_are_created_under_app_data(self) -> None:
+    def test_backup_dir_is_created_under_app_data(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             app_data_dir = Path(temp_dir)
 
-            self.assertEqual(updates_dir(app_data_dir), app_data_dir / "updates")
             self.assertEqual(backups_dir(app_data_dir), app_data_dir / "backups")
-            self.assertTrue((app_data_dir / "updates").is_dir())
             self.assertTrue((app_data_dir / "backups").is_dir())
 
     def test_create_database_backup_preserves_local_data(self) -> None:
@@ -155,27 +141,33 @@ class SelectReleaseAssetTests(unittest.TestCase):
     def test_writes_macos_installer_script_for_dmg(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            package_path = temp_path / "GestionCamiones-macOS-AppleSilicon.dmg"
-            package_path.write_bytes(b"fake")
+            asset = ReleaseAsset(
+                "GestionCamiones-macOS-AppleSilicon.dmg",
+                "https://example.com/GestionCamiones-macOS-AppleSilicon.dmg",
+                1000,
+            )
 
-            script_path = _write_macos_installer_script(package_path, temp_path)
+            script_path = _write_macos_installer_script(asset, None, temp_path)
 
             content = script_path.read_text(encoding="utf-8")
             self.assertIn("hdiutil attach", content)
-            self.assertIn(str(package_path), content)
-            self.assertIn("open -n \"$TARGET_APP\"", content)
+            self.assertIn(asset.download_url, content)
+            self.assertIn('open -n "$TARGET_APP"', content)
 
     def test_writes_windows_installer_script_for_zip(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            package_path = temp_path / "GestionCamiones-Windows-x64.zip"
-            package_path.write_bytes(b"fake")
+            asset = ReleaseAsset(
+                "GestionCamiones-Windows-x64.zip",
+                "https://example.com/GestionCamiones-Windows-x64.zip",
+                1000,
+            )
 
-            script_path = _write_windows_installer_script(package_path, temp_path)
+            script_path = _write_windows_installer_script(asset, None, temp_path)
 
             content = script_path.read_text(encoding="utf-8")
             self.assertIn("Expand-Archive", content)
-            self.assertIn(str(package_path), content)
+            self.assertIn(asset.download_url, content)
             self.assertIn("Start-Process -FilePath $ExecutablePath", content)
 
 
