@@ -30,7 +30,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QProgressDialog,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -84,16 +83,13 @@ from gestion_camiones.services.updater import (
     ReleaseAsset,
     ReleaseInfo,
     UpdateCheckError,
-    UpdateDownloadError,
     UpdateInstallError,
     backups_dir,
     check_latest_release,
     create_database_backup,
-    download_release_asset,
     launch_update_installer,
     select_checksum_asset,
     select_release_asset,
-    updates_dir,
 )
 
 TAB_LABELS = [
@@ -287,9 +283,6 @@ class SortableTableWidgetItem(QTableWidgetItem):
 class UpdateSignals(QObject):
     finished = Signal(object, bool)
     failed = Signal(str, bool)
-    download_progress = Signal(int, int)
-    download_finished = Signal(object, object, object)
-    download_failed = Signal(str)
 
 
 def _anchor_child_window(window: QWidget) -> None:
@@ -309,12 +302,7 @@ class MainWindow(QMainWindow):
         self.update_signals = UpdateSignals()
         self.update_signals.finished.connect(self._handle_update_check_finished)
         self.update_signals.failed.connect(self._handle_update_check_failed)
-        self.update_signals.download_progress.connect(self._handle_update_download_progress)
-        self.update_signals.download_finished.connect(self._handle_update_download_finished)
-        self.update_signals.download_failed.connect(self._handle_update_download_failed)
         self.update_check_in_progress = False
-        self.update_download_in_progress = False
-        self.update_progress_dialog: QProgressDialog | None = None
         self.cliente_repository = ClienteRepository(database_path)
         self.alert_repository = AlertRepository(database_path)
         self.carga_repository = CargaRepository(database_path)
@@ -2096,8 +2084,8 @@ class MainWindow(QMainWindow):
         title = QLabel("Actualizaciones")
         title.setObjectName("sectionTitle")
         description = QLabel(
-            "La app descarga el paquete correcto desde GitHub y guarda un backup local "
-            "antes de abrir el instalador."
+            "Cuando hay una nueva version disponible se puede instalar directamente. "
+            "La app guarda un backup de la base local y lanza el instalador en segundo plano."
         )
         description.setObjectName("muted")
         description.setWordWrap(True)
@@ -2890,46 +2878,48 @@ class MainWindow(QMainWindow):
         if not isinstance(release, ReleaseInfo):
             return
 
-        preferred_asset = self._preferred_release_asset(release)
+        skipped = str(self.app_settings.get("skipped_update_version", ""))
+        if release.version == skipped:
+            return
+
+        asset = self._preferred_release_asset(release)
+        if asset is None:
+            if interactive:
+                QMessageBox.information(
+                    self,
+                    "Actualizacion disponible",
+                    f"Nueva version disponible: {release.version}\n"
+                    "No hay paquete automatico para este sistema.",
+                )
+            return
+
+        checksum_asset = select_checksum_asset(release, asset)
+        size_mb = asset.size / (1024 * 1024) if asset.size else 0
+        size_label = f" ({size_mb:.1f} MB)" if size_mb else ""
+
         message = QMessageBox(self)
         _anchor_child_window(message)
         message.setIcon(QMessageBox.Icon.Information)
         message.setWindowTitle("Actualizacion disponible")
-        message.setText(f"Hay una version nueva disponible: {release.version}")
-        if preferred_asset is None:
-            message.setInformativeText(
-                "No se encontro un paquete automatico para este sistema. "
-                "Podes ver la release completa."
-            )
-        else:
-            size_mb = preferred_asset.size / (1024 * 1024) if preferred_asset.size else 0
-            size_label = f" ({size_mb:.1f} MB)" if size_mb else ""
-            message.setInformativeText(
-                f"Paquete recomendado: {preferred_asset.name}{size_label}.\n"
-                "Antes de instalar se crea un backup de la base local."
-            )
+        message.setText(f"Nueva version disponible: {release.version}")
+        message.setInformativeText(
+            f"Paquete: {asset.name}{size_label}\n"
+            "La app se cerrara para instalar y se volvera a abrir automaticamente."
+        )
         if release.notes.strip():
             message.setDetailedText(release.notes.strip())
 
-        update_button = None
-        if preferred_asset is not None:
-            update_button = message.addButton(
-                "Descargar e instalar",
-                QMessageBox.ButtonRole.AcceptRole,
-            )
-        release_button = message.addButton("Ver release", QMessageBox.ButtonRole.ActionRole)
-        later_button = message.addButton("Mas tarde", QMessageBox.ButtonRole.RejectRole)
-        if update_button is not None:
-            message.setDefaultButton(update_button)
+        update_btn = message.addButton("Actualizar ahora", QMessageBox.ButtonRole.AcceptRole)
+        skip_btn = message.addButton("Omitir esta version", QMessageBox.ButtonRole.RejectRole)
+        message.setDefaultButton(update_btn)
         message.exec()
 
         clicked = message.clickedButton()
-        if clicked == update_button and preferred_asset is not None:
-            self._start_update_download(release, preferred_asset)
-        elif clicked == release_button:
-            QDesktopServices.openUrl(QUrl(release.html_url))
-        elif clicked == later_button:
-            return
+        if clicked == skip_btn:
+            self.app_settings["skipped_update_version"] = release.version
+            self._save_app_settings()
+        elif clicked == update_btn:
+            self._launch_update(release, asset, checksum_asset)
 
     def _handle_update_check_failed(self, error_message: str, interactive: bool) -> None:
         self.update_check_in_progress = False
@@ -2940,162 +2930,34 @@ class MainWindow(QMainWindow):
                 f"No se pudo comprobar si hay una version nueva.\n{error_message}",
             )
 
-    def _start_update_download(self, release: ReleaseInfo, asset: ReleaseAsset) -> None:
-        if self.update_download_in_progress:
-            QMessageBox.information(
-                self,
-                "Actualizaciones",
-                "Ya hay una descarga de actualizacion en curso.",
-            )
-            return
-
-        self.update_download_in_progress = True
-        self.update_progress_dialog = QProgressDialog(
-            "Preparando actualizacion...",
-            "",
-            0,
-            100,
-            self,
-        )
-        _anchor_child_window(self.update_progress_dialog)
-        self.update_progress_dialog.setCancelButton(None)
-        self.update_progress_dialog.setWindowTitle("Actualizando")
-        self.update_progress_dialog.setMinimumDuration(0)
-        self.update_progress_dialog.setValue(0)
-
-        Thread(
-            target=self._run_update_download,
-            args=(release, asset),
-            daemon=True,
-        ).start()
-
-    def _run_update_download(self, release: ReleaseInfo, asset: ReleaseAsset) -> None:
+    def _launch_update(
+        self,
+        release: ReleaseInfo,
+        asset: ReleaseAsset,
+        checksum_asset: ReleaseAsset | None,
+    ) -> None:
         try:
             app_data_dir = get_app_data_dir()
-            backup_path = create_database_backup(
-                self.database_path,
-                backups_dir(app_data_dir),
-            )
-            checksum_asset = select_checksum_asset(release, asset)
-            if checksum_asset is None:
-                raise UpdateDownloadError(
-                    "La release no incluye el archivo de checksum requerido para este paquete."
-                )
-            package_path = download_release_asset(
-                asset,
-                updates_dir(app_data_dir) / release.version,
-                checksum_asset=checksum_asset,
-                progress_callback=self.update_signals.download_progress.emit,
-            )
-        except (UpdateDownloadError, OSError) as exc:
-            self.update_signals.download_failed.emit(str(exc))
-            return
-        except Exception as exc:
-            self.update_signals.download_failed.emit(str(exc))
-            return
-
-        self.update_signals.download_finished.emit(package_path, backup_path, asset)
-
-    def _handle_update_download_progress(self, downloaded: int, total_size: int) -> None:
-        if self.update_progress_dialog is None:
-            return
-
-        if total_size > 0:
-            self.update_progress_dialog.setRange(0, total_size)
-            self.update_progress_dialog.setValue(min(downloaded, total_size))
-            downloaded_mb = downloaded / (1024 * 1024)
-            total_mb = total_size / (1024 * 1024)
-            self.update_progress_dialog.setLabelText(
-                f"Descargando actualizacion... {downloaded_mb:.1f} de {total_mb:.1f} MB"
-            )
-        else:
-            self.update_progress_dialog.setRange(0, 0)
-            self.update_progress_dialog.setLabelText("Descargando actualizacion...")
-
-    def _handle_update_download_finished(
-        self,
-        package_path: object,
-        backup_path: object,
-        asset: object,
-    ) -> None:
-        self.update_download_in_progress = False
-        if self.update_progress_dialog is not None:
-            self.update_progress_dialog.close()
-            self.update_progress_dialog = None
-
-        if not isinstance(package_path, Path) or not isinstance(backup_path, Path):
-            QMessageBox.warning(
-                self,
-                "Actualizaciones",
-                "La actualizacion se descargo, pero no se pudo abrir el paquete.",
-            )
-            return
-
-        asset_name = asset.name if isinstance(asset, ReleaseAsset) else package_path.name
-        message = QMessageBox(self)
-        _anchor_child_window(message)
-        message.setIcon(QMessageBox.Icon.Information)
-        message.setWindowTitle("Actualizacion descargada")
-        message.setText("La actualizacion se descargo correctamente.")
-        message.setInformativeText(
-            f"Paquete: {asset_name}\n"
-            f"Backup de base local: {backup_path}\n\n"
-            "La app se cerrara para reemplazar los archivos. La base de datos queda "
-            "en la carpeta de datos del usuario y no se reemplaza por el instalador."
-        )
-        install_button = message.addButton("Instalar ahora", QMessageBox.ButtonRole.AcceptRole)
-        open_button = message.addButton("Abrir paquete", QMessageBox.ButtonRole.ActionRole)
-        folder_button = message.addButton("Ver carpeta", QMessageBox.ButtonRole.ActionRole)
-        message.addButton("Cerrar", QMessageBox.ButtonRole.RejectRole)
-        message.setDefaultButton(install_button)
-        message.exec()
-
-        clicked = message.clickedButton()
-        if clicked == install_button:
-            self._install_downloaded_update(package_path)
-        elif clicked == open_button:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(package_path)))
-        elif clicked == folder_button:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(package_path.parent)))
-
-    def _install_downloaded_update(self, package_path: Path) -> None:
-        try:
-            script_path = launch_update_installer(package_path, get_app_data_dir())
+            create_database_backup(self.database_path, backups_dir(app_data_dir))
+            launch_update_installer(asset, checksum_asset, app_data_dir)
         except UpdateInstallError as exc:
             QMessageBox.warning(
                 self,
                 "Instalacion automatica",
-                f"No se pudo preparar la instalacion automatica.\n{exc}",
+                f"No se pudo preparar el instalador.\n{exc}",
             )
             return
         except OSError as exc:
             QMessageBox.warning(
                 self,
                 "Instalacion automatica",
-                f"No se pudo iniciar el instalador automatico.\n{exc}",
+                f"No se pudo iniciar el instalador.\n{exc}",
             )
             return
 
-        QMessageBox.information(
-            self,
-            "Instalacion automatica",
-            "La app se cerrara para instalar la actualizacion y volver a abrirse.\n"
-            f"Registro tecnico: {script_path}",
-        )
         app = QApplication.instance()
         if app is not None:
             app.quit()
-
-    def _handle_update_download_failed(self, error_message: str) -> None:
-        self.update_download_in_progress = False
-        if self.update_progress_dialog is not None:
-            self.update_progress_dialog.close()
-            self.update_progress_dialog = None
-        QMessageBox.critical(
-            self,
-            "Actualizaciones",
-            f"No se pudo descargar la actualizacion.\n{error_message}",
-        )
 
     def _preferred_release_asset(self, release: ReleaseInfo) -> ReleaseAsset | None:
         return select_release_asset(

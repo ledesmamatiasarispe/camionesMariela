@@ -23,6 +23,7 @@ def load_app_settings(settings_path: Path) -> dict[str, object]:
         "splitter_sizes": {},
         "font_sizes": {},
         "theme_mode": "light",
+        "skipped_update_version": "",
     }
     if not settings_path.exists():
         return data
@@ -87,6 +88,9 @@ def load_app_settings(settings_path: Path) -> dict[str, object]:
     theme_mode = stored.get("theme_mode")
     if theme_mode in {"light", "dark"}:
         data["theme_mode"] = theme_mode
+    skipped_update_version = stored.get("skipped_update_version")
+    if isinstance(skipped_update_version, str):
+        data["skipped_update_version"] = skipped_update_version.strip()
     return data
 
 
@@ -117,6 +121,7 @@ def save_app_settings(settings_path: Path, settings: dict[str, object]) -> None:
             if settings.get("theme_mode") in {"light", "dark"}
             else "light"
         ),
+        "skipped_update_version": str(settings.get("skipped_update_version", "")).strip(),
     }
     settings_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=True),

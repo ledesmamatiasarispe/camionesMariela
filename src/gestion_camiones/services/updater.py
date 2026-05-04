@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import platform
-import shutil
 import sqlite3
 import ssl
 import subprocess
@@ -40,10 +38,6 @@ class ReleaseInfo:
 
 class UpdateCheckError(RuntimeError):
     """Error al consultar actualizaciones."""
-
-
-class UpdateDownloadError(RuntimeError):
-    """Error al descargar una actualizacion."""
 
 
 class UpdateInstallError(RuntimeError):
@@ -125,25 +119,41 @@ def select_checksum_asset(release: ReleaseInfo, package_asset: ReleaseAsset) -> 
     return None
 
 
-def updates_dir(app_data_dir: Path) -> Path:
-    path = app_data_dir / "updates"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
 def backups_dir(app_data_dir: Path) -> Path:
     path = app_data_dir / "backups"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-def launch_update_installer(package_path: Path, app_data_dir: Path) -> Path:
+def create_database_backup(database_path: Path, destination_dir: Path) -> Path:
+    if not database_path.exists():
+        raise OSError("No se encontro la base de datos local para respaldar.")
+
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = destination_dir / f"{database_path.stem}-backup-{timestamp}{database_path.suffix}"
+
+    try:
+        with closing(sqlite3.connect(database_path)) as source:
+            with closing(sqlite3.connect(backup_path)) as destination:
+                source.backup(destination)
+    except sqlite3.Error as exc:
+        raise OSError("No se pudo crear el backup de la base local.") from exc
+
+    return backup_path
+
+
+def launch_update_installer(
+    asset: ReleaseAsset,
+    checksum_asset: ReleaseAsset | None,
+    app_data_dir: Path,
+) -> Path:
     system = platform.system()
     scripts_dir = app_data_dir / "updates" / "installers"
     scripts_dir.mkdir(parents=True, exist_ok=True)
 
     if system == "Darwin":
-        script_path = _write_macos_installer_script(package_path, scripts_dir)
+        script_path = _write_macos_installer_script(asset, checksum_asset, scripts_dir)
         subprocess.Popen(
             ["/bin/bash", str(script_path)],
             close_fds=True,
@@ -152,7 +162,7 @@ def launch_update_installer(package_path: Path, app_data_dir: Path) -> Path:
         return script_path
 
     if system == "Windows":
-        script_path = _write_windows_installer_script(package_path, scripts_dir)
+        script_path = _write_windows_installer_script(asset, checksum_asset, scripts_dir)
         creationflags = 0
         if hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
             creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
@@ -176,141 +186,113 @@ def launch_update_installer(package_path: Path, app_data_dir: Path) -> Path:
     raise UpdateInstallError("La instalacion automatica no esta disponible en este sistema.")
 
 
-def create_database_backup(database_path: Path, destination_dir: Path) -> Path:
-    if not database_path.exists():
-        raise UpdateDownloadError("No se encontro la base de datos local para respaldar.")
-
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_path = destination_dir / f"{database_path.stem}-backup-{timestamp}{database_path.suffix}"
-
-    try:
-        with closing(sqlite3.connect(database_path)) as source:
-            with closing(sqlite3.connect(backup_path)) as destination:
-                source.backup(destination)
-    except sqlite3.Error as exc:
-        raise UpdateDownloadError("No se pudo crear el backup de la base local.") from exc
-
-    return backup_path
-
-
-def download_release_asset(
+def _write_windows_installer_script(
     asset: ReleaseAsset,
-    destination_dir: Path,
-    *,
-    checksum_asset: ReleaseAsset | None = None,
-    progress_callback: Callable[[int, int], None] | None = None,
+    checksum_asset: ReleaseAsset | None,
+    scripts_dir: Path,
 ) -> Path:
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    file_name = _safe_asset_filename(asset.name)
-    output_path = destination_dir / file_name
-    partial_path = output_path.with_suffix(output_path.suffix + ".part")
+    if not asset.name.lower().endswith(".zip"):
+        raise UpdateInstallError("Windows requiere un paquete .zip para instalacion automatica.")
 
-    request = Request(
-        asset.download_url,
-        headers={"User-Agent": "gestion-camiones-updater"},
-    )
+    install_dir = Path(sys.executable).resolve().parent
+    executable_path = Path(sys.executable).resolve()
+    staging_dir = scripts_dir / "windows-staging"
+    package_path = staging_dir / _safe_asset_filename(asset.name)
+    log_path = scripts_dir / "install-windows.log"
+    script_path = scripts_dir / "install-windows.ps1"
 
-    try:
-        with _open_url(request, timeout=30) as response:
-            total_size = int(response.headers.get("Content-Length") or asset.size or 0)
-            downloaded = 0
-            with partial_path.open("wb") as file:
-                while True:
-                    chunk = response.read(1024 * 256)
-                    if not chunk:
-                        break
-                    file.write(chunk)
-                    downloaded += len(chunk)
-                    if progress_callback is not None:
-                        progress_callback(downloaded, total_size)
-        shutil.move(str(partial_path), output_path)
-    except (OSError, HTTPError, URLError) as exc:
-        try:
-            partial_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise UpdateDownloadError("No se pudo descargar la actualizacion.") from exc
+    checksum_url = checksum_asset.download_url if checksum_asset is not None else ""
 
-    if checksum_asset is not None:
-        _verify_asset_checksum(output_path, checksum_asset)
+    script = f"""\
+$ErrorActionPreference = "Stop"
+param(
+    [int]$CurrentPid
+)
+$DownloadUrl = {_powershell_quote_str(asset.download_url)}
+$ChecksumUrl = {_powershell_quote_str(checksum_url)}
+$PackagePath = {_powershell_quote(package_path)}
+$InstallDir = {_powershell_quote(install_dir)}
+$ExecutablePath = {_powershell_quote(executable_path)}
+$StagingDir = {_powershell_quote(staging_dir)}
+$LogPath = {_powershell_quote(log_path)}
 
-    return output_path
+Start-Transcript -Path $LogPath -Append | Out-Null
+try {{
+    Write-Output "Iniciando instalacion automatica Windows: $(Get-Date)"
 
+    if ($CurrentPid) {{
+        try {{ Wait-Process -Id $CurrentPid -ErrorAction SilentlyContinue }} catch {{ }}
+    }}
 
-def _verify_asset_checksum(package_path: Path, checksum_asset: ReleaseAsset) -> None:
-    expected_checksum = _download_expected_checksum(checksum_asset, package_path.name)
-    actual_checksum = _sha256_file(package_path)
+    if (Test-Path -LiteralPath $StagingDir) {{
+        Remove-Item -LiteralPath $StagingDir -Recurse -Force
+    }}
+    New-Item -ItemType Directory -Path $StagingDir -Force | Out-Null
 
-    if actual_checksum.lower() != expected_checksum.lower():
-        try:
-            package_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise UpdateDownloadError(
-            "La actualizacion descargada no coincide con el checksum publicado."
-        )
+    Write-Output "Descargando actualizacion..."
+    $WebClient = New-Object System.Net.WebClient
+    $WebClient.Headers.Add('User-Agent', 'gestion-camiones-updater')
+    $WebClient.DownloadFile($DownloadUrl, $PackagePath)
 
+    if ($ChecksumUrl) {{
+        Write-Output "Verificando checksum..."
+        $ChecksumContent = $WebClient.DownloadString($ChecksumUrl)
+        $ExpectedHash = (($ChecksumContent -split '[\\r\\n\\s]+') |
+            Where-Object {{ $_ -match '^[0-9a-fA-F]{{64}}$' }} |
+            Select-Object -First 1).ToLower()
+        $ActualHash = (Get-FileHash -Path $PackagePath -Algorithm SHA256).Hash.ToLower()
+        if ($ActualHash -ne $ExpectedHash) {{
+            throw "Checksum incorrecto: esperado $ExpectedHash, obtenido $ActualHash"
+        }}
+        Write-Output "Checksum verificado."
+    }}
 
-def _download_expected_checksum(checksum_asset: ReleaseAsset, package_name: str) -> str:
-    request = Request(
-        checksum_asset.download_url,
-        headers={"User-Agent": "gestion-camiones-updater"},
-    )
+    Expand-Archive -LiteralPath $PackagePath -DestinationPath $StagingDir -Force
 
-    try:
-        with _open_url(request, timeout=30) as response:
-            content = response.read(1024 * 32).decode("utf-8", errors="replace")
-    except (OSError, HTTPError, URLError) as exc:
-        raise UpdateDownloadError("No se pudo descargar el checksum de la actualizacion.") from exc
+    $SourceDir = Join-Path $StagingDir "GestionCamiones"
+    if (-not (Test-Path -LiteralPath $SourceDir)) {{
+        $SourceExe = Get-ChildItem -LiteralPath $StagingDir -Recurse -Filter "GestionCamiones.exe" |
+            Select-Object -First 1
+        if ($null -eq $SourceExe) {{
+            throw "No se encontro GestionCamiones.exe dentro del ZIP."
+        }}
+        $SourceDir = $SourceExe.Directory.FullName
+    }}
 
-    checksum = _parse_checksum_content(content, package_name)
-    if checksum is None:
-        raise UpdateDownloadError("El checksum publicado no tiene un formato valido.")
-    return checksum
-
-
-def _parse_checksum_content(content: str, package_name: str) -> str | None:
-    normalized_package_name = Path(package_name).name
-    for line in content.splitlines():
-        stripped_line = line.strip()
-        if not stripped_line:
-            continue
-
-        parts = stripped_line.replace("*", " ").split()
-        if not parts:
-            continue
-
-        checksum = parts[0]
-        if len(checksum) != 64 or any(char not in "0123456789abcdefABCDEF" for char in checksum):
-            continue
-
-        if len(parts) == 1 or normalized_package_name in parts[1:]:
-            return checksum
-
-    return None
+    Copy-Item -Path (Join-Path $SourceDir "*") -Destination $InstallDir -Recurse -Force
+    Start-Process -FilePath $ExecutablePath
+    Write-Output "Instalacion automatica Windows finalizada: $(Get-Date)"
+}} finally {{
+    Stop-Transcript | Out-Null
+}}
+"""
+    script_path.write_text(textwrap.dedent(script), encoding="utf-8")
+    return script_path
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _write_macos_installer_script(package_path: Path, scripts_dir: Path) -> Path:
-    if package_path.suffix.lower() != ".dmg":
+def _write_macos_installer_script(
+    asset: ReleaseAsset,
+    checksum_asset: ReleaseAsset | None,
+    scripts_dir: Path,
+) -> Path:
+    if not asset.name.lower().endswith(".dmg"):
         raise UpdateInstallError("macOS requiere un paquete .dmg para instalacion automatica.")
 
     target_app = _preferred_macos_install_target()
+    staging_dir = scripts_dir / "macos-staging"
+    package_path = staging_dir / _safe_asset_filename(asset.name)
     log_path = scripts_dir / "install-macos.log"
     script_path = scripts_dir / "install-macos.sh"
+
+    checksum_url = checksum_asset.download_url if checksum_asset is not None else ""
+
     script = f"""\
 #!/usr/bin/env bash
 set -euo pipefail
 
-PACKAGE={_shell_quote(package_path)}
+DOWNLOAD_URL={_shell_quote_str(asset.download_url)}
+CHECKSUM_URL={_shell_quote_str(checksum_url)}
+PACKAGE_PATH={_shell_quote(package_path)}
 TARGET_APP={_shell_quote(target_app)}
 CURRENT_PID="{os.getpid()}"
 LOG_PATH={_shell_quote(log_path)}
@@ -322,6 +304,21 @@ while kill -0 "$CURRENT_PID" 2>/dev/null; do
   sleep 1
 done
 
+mkdir -p "$(dirname "$PACKAGE_PATH")"
+echo "Descargando actualizacion..."
+curl -fL --user-agent "gestion-camiones-updater" -o "$PACKAGE_PATH" "$DOWNLOAD_URL"
+
+if [[ -n "$CHECKSUM_URL" ]]; then
+  echo "Verificando checksum..."
+  EXPECTED=$(curl -fsSL --user-agent "gestion-camiones-updater" "$CHECKSUM_URL" | awk '{{print $1}}')
+  ACTUAL=$(shasum -a 256 "$PACKAGE_PATH" | awk '{{print $1}}')
+  if [[ "$ACTUAL" != "$EXPECTED" ]]; then
+    echo "Checksum incorrecto: esperado $EXPECTED, obtenido $ACTUAL"
+    exit 1
+  fi
+  echo "Checksum verificado."
+fi
+
 MOUNT_DIR="$(mktemp -d)"
 cleanup() {{
   hdiutil detach "$MOUNT_DIR" -quiet || true
@@ -329,7 +326,7 @@ cleanup() {{
 }}
 trap cleanup EXIT
 
-hdiutil attach "$PACKAGE" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
+hdiutil attach "$PACKAGE_PATH" -nobrowse -readonly -mountpoint "$MOUNT_DIR"
 SOURCE_APP="$(find "$MOUNT_DIR" -maxdepth 1 -name '*.app' -type d | head -n 1)"
 if [[ -z "$SOURCE_APP" ]]; then
   echo "No se encontro una app dentro del DMG."
@@ -361,60 +358,6 @@ echo "Instalacion automatica macOS finalizada: $(date)"
 """
     script_path.write_text(textwrap.dedent(script), encoding="utf-8")
     script_path.chmod(0o700)
-    return script_path
-
-
-def _write_windows_installer_script(package_path: Path, scripts_dir: Path) -> Path:
-    if package_path.suffix.lower() != ".zip":
-        raise UpdateInstallError("Windows requiere un paquete .zip para instalacion automatica.")
-
-    install_dir = Path(sys.executable).resolve().parent
-    executable_path = Path(sys.executable).resolve()
-    staging_dir = scripts_dir / "windows-staging"
-    log_path = scripts_dir / "install-windows.log"
-    script_path = scripts_dir / "install-windows.ps1"
-    script = f"""\
-$ErrorActionPreference = "Stop"
-param(
-    [int]$CurrentPid
-)
-$Package = {_powershell_quote(package_path)}
-$InstallDir = {_powershell_quote(install_dir)}
-$ExecutablePath = {_powershell_quote(executable_path)}
-$StagingDir = {_powershell_quote(staging_dir)}
-$LogPath = {_powershell_quote(log_path)}
-
-Start-Transcript -Path $LogPath -Append | Out-Null
-try {{
-    Write-Output "Iniciando instalacion automatica Windows: $(Get-Date)"
-    if ($CurrentPid) {{
-        try {{ Wait-Process -Id $CurrentPid -ErrorAction SilentlyContinue }} catch {{ }}
-    }}
-
-    if (Test-Path -LiteralPath $StagingDir) {{
-        Remove-Item -LiteralPath $StagingDir -Recurse -Force
-    }}
-    New-Item -ItemType Directory -Path $StagingDir -Force | Out-Null
-    Expand-Archive -LiteralPath $Package -DestinationPath $StagingDir -Force
-
-    $SourceDir = Join-Path $StagingDir "GestionCamiones"
-    if (-not (Test-Path -LiteralPath $SourceDir)) {{
-        $SourceExe = Get-ChildItem -LiteralPath $StagingDir -Recurse -Filter "GestionCamiones.exe" |
-            Select-Object -First 1
-        if ($null -eq $SourceExe) {{
-            throw "No se encontro GestionCamiones.exe dentro del ZIP."
-        }}
-        $SourceDir = $SourceExe.Directory.FullName
-    }}
-
-    Copy-Item -Path (Join-Path $SourceDir "*") -Destination $InstallDir -Recurse -Force
-    Start-Process -FilePath $ExecutablePath
-    Write-Output "Instalacion automatica Windows finalizada: $(Get-Date)"
-}} finally {{
-    Stop-Transcript | Out-Null
-}}
-"""
-    script_path.write_text(textwrap.dedent(script), encoding="utf-8")
     return script_path
 
 
@@ -450,8 +393,16 @@ def _shell_quote(path: Path) -> str:
     return "'" + value.replace("'", "'\\''") + "'"
 
 
+def _shell_quote_str(value: str) -> str:
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
 def _powershell_quote(path: Path) -> str:
     value = str(path)
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _powershell_quote_str(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
@@ -502,7 +453,7 @@ def _version_tuple(version: str) -> tuple[int, ...]:
 def _safe_asset_filename(value: str) -> str:
     file_name = Path(value).name.strip()
     if not file_name:
-        raise UpdateDownloadError("El archivo de actualizacion no tiene nombre valido.")
+        raise UpdateInstallError("El archivo de actualizacion no tiene nombre valido.")
     for invalid_char in '<>:"/\\|?*':
         file_name = file_name.replace(invalid_char, "_")
     return file_name
