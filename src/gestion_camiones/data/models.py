@@ -175,6 +175,7 @@ class TipoCarga:
 class ViajeResumen:
     id: int
     fecha: str
+    cliente_id: int
     cliente: str
     carta_porte: str
     carga: str

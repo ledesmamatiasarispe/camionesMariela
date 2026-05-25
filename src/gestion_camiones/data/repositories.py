@@ -29,11 +29,45 @@ class ViajeRepository:
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
 
-    def list_resumen(self, search: str = "") -> list[ViajeResumen]:
+    # Maps a column key to its SQL expression for targeted WHERE filtering.
+    _COLUMN_SEARCH_SQL: dict[str, str] = {
+        "id": "CAST(viajes.id AS TEXT)",
+        "fecha": "COALESCE(viajes.fecha, '')",
+        "fecha_descarga_tarifa": "COALESCE(viajes.fecha_descarga_tarifa, '')",
+        "fecha_descarga_demora": "COALESCE(viajes.fecha_descarga_demora, '')",
+        "fecha_descarga_vacio": "COALESCE(viajes.fecha_descarga_vacio, '')",
+        "cliente": (
+            "CASE WHEN COALESCE(clientes.es_cliente_directo, 1) = 0"
+            " AND cliente_padre.nombre IS NOT NULL"
+            " THEN clientes.nombre || ' (' || cliente_padre.nombre || ')'"
+            " ELSE clientes.nombre END"
+        ),
+        "carta_porte": "COALESCE(viajes.carta_porte, '')",
+        "carga": "cargas.codigo_contenedor",
+        "lugar_carga": "lugar_carga.nombre",
+        "lugar_descarga": "lugar_descarga.nombre",
+        "lugar_descarga_vacio": "COALESCE(lugar_descarga_vacio.nombre, '')",
+        "camion": "camion.nombre_identificatorio || ' - ' || camion.patente",
+        "semi": "COALESCE(semi.nombre_identificatorio || ' - ' || semi.patente, '')",
+        "chofer": "trim(choferes.nombre || ' ' || choferes.apellido)",
+        "tipo_carga": "COALESCE(tipos_carga.nombre, viajes.tipo_carga)",
+        "observaciones": "COALESCE(viajes.observaciones, '')",
+        "estado": "viajes.estado",
+    }
+
+    def list_resumen(
+        self,
+        search: str = "",
+        column: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        exact: bool = False,
+    ) -> list[ViajeResumen]:
         query = """
             SELECT
                 viajes.id,
                 COALESCE(viajes.fecha, '') AS fecha,
+                viajes.cliente_id,
                 CASE
                     WHEN COALESCE(clientes.es_cliente_directo, 1) = 0
                          AND cliente_padre.nombre IS NOT NULL
@@ -86,74 +120,57 @@ class ViajeRepository:
             LEFT JOIN tipos_carga ON tipos_carga.codigo = viajes.tipo_carga
         """
         params: tuple[str, ...] = ()
-        if search.strip():
-            query += """
-                WHERE clientes.nombre LIKE ?
-                   OR clientes.cuit LIKE ?
-                   OR clientes.email LIKE ?
-                   OR clientes.numero_contacto LIKE ?
-                   OR cliente_padre.nombre LIKE ?
-                   OR viajes.carta_porte LIKE ?
-                   OR cargas.codigo_contenedor LIKE ?
-                   OR viajes.observaciones LIKE ?
-                   OR lugar_carga.nombre LIKE ?
-                   OR lugar_carga.direccion LIKE ?
-                   OR lugar_carga.observaciones LIKE ?
-                   OR lugar_descarga.nombre LIKE ?
-                   OR lugar_descarga.direccion LIKE ?
-                   OR lugar_descarga.observaciones LIKE ?
-                   OR lugar_descarga_vacio.nombre LIKE ?
-                   OR lugar_descarga_vacio.direccion LIKE ?
-                   OR lugar_descarga_vacio.observaciones LIKE ?
-                   OR choferes.dni LIKE ?
-                   OR choferes.nombre LIKE ?
-                   OR choferes.apellido LIKE ?
-                   OR choferes.numero_telefono LIKE ?
-                   OR camion.nombre_identificatorio LIKE ?
-                   OR camion.patente LIKE ?
-                   OR semi.nombre_identificatorio LIKE ?
-                   OR semi.patente LIKE ?
-                   OR EXISTS (
-                       SELECT 1
-                       FROM viaje_peajes
-                       JOIN peajes ON peajes.id = viaje_peajes.peaje_id
-                       WHERE viaje_peajes.viaje_id = viajes.id
-                         AND (
-                             peajes.nombre LIKE ?
-                             OR peajes.direccion LIKE ?
-                         )
-                   )
-            """
+        col_sql = self._COLUMN_SEARCH_SQL.get(column, "") if column else ""
+        if col_sql and date_from and date_to:
+            query += f" WHERE {col_sql} BETWEEN ? AND ?"
+            params = (date_from, date_to)
+        elif col_sql and exact and search:
+            query += f" WHERE {col_sql} = ?"
+            params = (search,)
+        elif search.strip():
             pattern = f"%{search.strip()}%"
-            params = (
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-            )
+            if col_sql:
+                query += f" WHERE {col_sql} LIKE ?"
+                params = (pattern,)
+            else:
+                query += """
+                    WHERE clientes.nombre LIKE ?
+                       OR clientes.cuit LIKE ?
+                       OR clientes.email LIKE ?
+                       OR clientes.numero_contacto LIKE ?
+                       OR cliente_padre.nombre LIKE ?
+                       OR viajes.carta_porte LIKE ?
+                       OR cargas.codigo_contenedor LIKE ?
+                       OR viajes.observaciones LIKE ?
+                       OR lugar_carga.nombre LIKE ?
+                       OR lugar_carga.direccion LIKE ?
+                       OR lugar_carga.observaciones LIKE ?
+                       OR lugar_descarga.nombre LIKE ?
+                       OR lugar_descarga.direccion LIKE ?
+                       OR lugar_descarga.observaciones LIKE ?
+                       OR lugar_descarga_vacio.nombre LIKE ?
+                       OR lugar_descarga_vacio.direccion LIKE ?
+                       OR lugar_descarga_vacio.observaciones LIKE ?
+                       OR choferes.dni LIKE ?
+                       OR choferes.nombre LIKE ?
+                       OR choferes.apellido LIKE ?
+                       OR choferes.numero_telefono LIKE ?
+                       OR camion.nombre_identificatorio LIKE ?
+                       OR camion.patente LIKE ?
+                       OR semi.nombre_identificatorio LIKE ?
+                       OR semi.patente LIKE ?
+                       OR EXISTS (
+                           SELECT 1
+                           FROM viaje_peajes
+                           JOIN peajes ON peajes.id = viaje_peajes.peaje_id
+                           WHERE viaje_peajes.viaje_id = viajes.id
+                             AND (
+                                 peajes.nombre LIKE ?
+                                 OR peajes.direccion LIKE ?
+                             )
+                       )
+                """
+                params = (pattern,) * 27
 
         query += " ORDER BY viajes.fecha, viajes.fecha_descarga_tarifa, viajes.id"
 

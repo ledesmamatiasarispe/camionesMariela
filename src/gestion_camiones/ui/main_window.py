@@ -239,6 +239,44 @@ VIAJE_CONFIGURABLE_FIELD_KEYS = tuple(
     if key != "cliente" and not key.endswith("_no_existe")
 )
 
+VIAJE_SEARCH_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("", "Todos los campos"),
+    ("fecha", "Fecha"),
+    ("fecha_descarga_tarifa", "F.Desc tarifa"),
+    ("fecha_descarga_demora", "F.Desc demora"),
+    ("fecha_descarga_vacio", "F.Desc vacio"),
+    ("cliente", "Cliente"),
+    ("carta_porte", "N° Carta de Porte"),
+    ("carga", "Codigo contenedor"),
+    ("lugar_carga", "Lugar carga"),
+    ("lugar_descarga", "L.Descarga"),
+    ("lugar_descarga_vacio", "Lugar descarga vacio"),
+    ("camion", "Camion"),
+    ("semi", "Semi"),
+    ("chofer", "Chofer"),
+    ("tipo_carga", "T.Carga"),
+    ("observaciones", "Observaciones"),
+    ("estado", "Estado"),
+)
+
+VIAJE_DATE_SEARCH_COLUMNS: frozenset[str] = frozenset(
+    {"fecha", "fecha_descarga_tarifa", "fecha_descarga_demora", "fecha_descarga_vacio"}
+)
+
+VIAJE_COMBO_SEARCH_COLUMNS: frozenset[str] = frozenset(
+    {
+        "estado",
+        "tipo_carga",
+        "cliente",
+        "chofer",
+        "camion",
+        "semi",
+        "lugar_carga",
+        "lugar_descarga",
+        "lugar_descarga_vacio",
+    }
+)
+
 VIAJE_HISTORY_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("id", "ID", "int"),
     ("fecha", "Fecha", "date"),
@@ -285,6 +323,10 @@ class UpdateSignals(QObject):
     failed = Signal(str, bool)
 
 
+class SearchSignals(QObject):
+    results = Signal(list)
+
+
 def _anchor_child_window(window: QWidget) -> None:
     if isinstance(window, QDialog):
         window.setWindowModality(Qt.WindowModality.WindowModal)
@@ -315,6 +357,17 @@ class MainWindow(QMainWindow):
         self.tipo_carga_repository = TipoCargaRepository(database_path)
         self.metric_cards: dict[str, MetricCard] = {}
         self.search_input: QLineEdit | None = None
+        self.search_column_combo: QComboBox | None = None
+        self.search_from_date: QDateEdit | None = None
+        self.search_to_date: QDateEdit | None = None
+        self.search_date_widget: QWidget | None = None
+        self.search_value_combo: QComboBox | None = None
+        self._search_signals = SearchSignals()
+        self._search_signals.results.connect(self._populate_table)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(300)
+        self._search_timer.timeout.connect(self._run_search_thread)
         self.table: QTableWidget | None = None
         self.object_tables: dict[str, QTableWidget] = {}
         self.sidebar: QFrame | None = None
@@ -820,9 +873,54 @@ class MainWindow(QMainWindow):
         title_block.addWidget(subtitle)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Buscar cliente, chofer, vehiculo, lugar o peaje")
-        self.search_input.setFixedWidth(300)
-        self.search_input.textChanged.connect(self._refresh_table)
+        self.search_input.setPlaceholderText("Buscar...")
+        self.search_input.setFixedWidth(260)
+        self.search_input.textChanged.connect(lambda _: self._search_timer.start())
+
+        current_date = QDate.currentDate()
+
+        from_date = QDateEdit()
+        _allow_keyboard_spinbox_input(from_date)
+        from_date.setCalendarPopup(True)
+        from_date.setDisplayFormat("yyyy-MM-dd")
+        from_date.setDate(QDate(current_date.year(), current_date.month(), 1))
+        from_date.dateChanged.connect(lambda _: self._search_timer.start())
+        self.search_from_date = from_date
+
+        to_date = QDateEdit()
+        _allow_keyboard_spinbox_input(to_date)
+        to_date.setCalendarPopup(True)
+        to_date.setDisplayFormat("yyyy-MM-dd")
+        to_date.setDate(QDate(current_date.year(), current_date.month(), current_date.daysInMonth()))
+        to_date.dateChanged.connect(lambda _: self._search_timer.start())
+        self.search_to_date = to_date
+
+        date_widget = QWidget()
+        date_layout = QHBoxLayout(date_widget)
+        date_layout.setContentsMargins(0, 0, 0, 0)
+        date_layout.setSpacing(4)
+        from_label = QLabel("Desde")
+        from_label.setObjectName("muted")
+        to_label = QLabel("Hasta")
+        to_label.setObjectName("muted")
+        date_layout.addWidget(from_label)
+        date_layout.addWidget(from_date)
+        date_layout.addWidget(to_label)
+        date_layout.addWidget(to_date)
+        date_widget.setVisible(False)
+        self.search_date_widget = date_widget
+
+        value_combo = QComboBox()
+        value_combo.setFixedWidth(220)
+        value_combo.setVisible(False)
+        value_combo.currentIndexChanged.connect(lambda _: self._search_timer.start())
+        self.search_value_combo = value_combo
+
+        self.search_column_combo = QComboBox()
+        self.search_column_combo.setFixedWidth(160)
+        for key, label in VIAJE_SEARCH_COLUMNS:
+            self.search_column_combo.addItem(label, userData=key)
+        self.search_column_combo.currentIndexChanged.connect(self._on_search_column_changed)
 
         new_button = QPushButton("Nuevo viaje")
         new_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -861,6 +959,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(sidebar_toggle)
         layout.addLayout(title_block)
         layout.addStretch()
+        layout.addWidget(self.search_column_combo)
+        layout.addWidget(self.search_date_widget)
+        layout.addWidget(self.search_value_combo)
         layout.addWidget(self.search_input)
         layout.addWidget(vehiculos_actions)
         layout.addWidget(peajes_actions)
@@ -1664,7 +1765,7 @@ class MainWindow(QMainWindow):
         top_controls.addWidget(to_card)
 
         client_combo = self._build_combo(
-            [(item.etiqueta, item.etiqueta) for item in self.cliente_repository.list_all()]
+            [(item.etiqueta, item.id) for item in self.cliente_repository.list_all()]
         )
         client_combo.currentIndexChanged.connect(self._refresh_print_report)
         self.print_client_combo = client_combo
@@ -3278,9 +3379,117 @@ class MainWindow(QMainWindow):
     def _refresh_table(self) -> None:
         if self.table is None:
             return
+        self._run_search_thread()
 
-        search = self.search_input.text() if self.search_input is not None else ""
-        rows = self.viaje_repository.list_resumen(search)
+    def _on_search_column_changed(self) -> None:
+        if self.search_column_combo is None:
+            return
+        column = self.search_column_combo.currentData() or ""
+        is_date = column in VIAJE_DATE_SEARCH_COLUMNS
+        is_combo = column in VIAJE_COMBO_SEARCH_COLUMNS
+        if self.search_input is not None:
+            self.search_input.setVisible(not is_date and not is_combo)
+            if not is_date and not is_combo:
+                self.search_input.clear()
+        if self.search_date_widget is not None:
+            self.search_date_widget.setVisible(is_date)
+        if self.search_value_combo is not None:
+            self.search_value_combo.setVisible(is_combo)
+            if is_combo:
+                self._populate_search_value_combo(column)
+        self._search_timer.start()
+
+    def _populate_search_value_combo(self, column: str) -> None:
+        if self.search_value_combo is None:
+            return
+        self.search_value_combo.blockSignals(True)
+        self.search_value_combo.clear()
+        self.search_value_combo.addItem("Todos", userData="")
+        options: list[str] = []
+        match column:
+            case "estado":
+                options = ["Programado", "En viaje", "Finalizado"]
+            case "tipo_carga":
+                options = [item.nombre for item in self.tipo_carga_repository.list_all()]
+            case "cliente":
+                options = [item.etiqueta for item in self.cliente_repository.list_all()]
+            case "chofer":
+                options = [
+                    item.nombre_completo for item in self.chofer_repository.list_all()
+                ]
+            case "camion":
+                options = [
+                    item.etiqueta
+                    for item in self.vehiculo_repository.list_all("CAMION")
+                ]
+            case "semi":
+                options = [
+                    item.etiqueta
+                    for item in self.vehiculo_repository.list_all("SEMI")
+                ]
+            case "lugar_carga" | "lugar_descarga" | "lugar_descarga_vacio":
+                options = [item.nombre for item in self.lugar_repository.list_all()]
+        for opt in options:
+            self.search_value_combo.addItem(opt, userData=opt)
+        self.search_value_combo.blockSignals(False)
+
+    def _run_search_thread(self) -> None:
+        if self.table is None:
+            return
+        column = (
+            self.search_column_combo.currentData() or ""
+            if self.search_column_combo is not None
+            else ""
+        )
+        if column in VIAJE_DATE_SEARCH_COLUMNS:
+            date_from = (
+                self.search_from_date.date().toString("yyyy-MM-dd")
+                if self.search_from_date is not None
+                else ""
+            )
+            date_to = (
+                self.search_to_date.date().toString("yyyy-MM-dd")
+                if self.search_to_date is not None
+                else ""
+            )
+            Thread(
+                target=self._fetch_viajes,
+                args=("", column, date_from, date_to, False),
+                daemon=True,
+            ).start()
+        elif column in VIAJE_COMBO_SEARCH_COLUMNS:
+            value = (
+                self.search_value_combo.currentData() or ""
+                if self.search_value_combo is not None
+                else ""
+            )
+            Thread(
+                target=self._fetch_viajes,
+                args=(value, column, "", "", True),
+                daemon=True,
+            ).start()
+        else:
+            search = self.search_input.text() if self.search_input is not None else ""
+            Thread(
+                target=self._fetch_viajes,
+                args=(search, column, "", "", False),
+                daemon=True,
+            ).start()
+
+    def _fetch_viajes(
+        self, search: str, column: str, date_from: str, date_to: str, exact: bool
+    ) -> None:
+        try:
+            rows = self.viaje_repository.list_resumen(
+                search, column, date_from=date_from, date_to=date_to, exact=exact
+            )
+            self._search_signals.results.emit(rows)
+        except Exception:
+            pass
+
+    def _populate_table(self, rows: list) -> None:
+        if self.table is None:
+            return
         header = self.table.horizontalHeader()
         sorting_enabled = self.table.isSortingEnabled()
         sort_column = header.sortIndicatorSection()
@@ -5327,8 +5536,8 @@ class MainWindow(QMainWindow):
         elif mode == "client":
             start_date = self.print_from_date.date().toString("yyyy-MM-dd")
             end_date = self.print_to_date.date().toString("yyyy-MM-dd")
-            client_label = self._selected_print_client_label()
-            if start_date > end_date or not client_label:
+            client_id = self._selected_print_client_id()
+            if start_date > end_date or client_id is None:
                 rows = []
             else:
                 rows = [
@@ -5337,7 +5546,7 @@ class MainWindow(QMainWindow):
                         start_date,
                         end_date,
                     )
-                    if viaje.cliente == client_label
+                    if viaje.cliente_id == client_id
                 ]
         else:
             month = int(self.print_month_combo.currentData() or QDate.currentDate().month())
@@ -5543,8 +5752,13 @@ class MainWindow(QMainWindow):
     def _selected_print_client_label(self) -> str:
         if self.print_client_combo is None:
             return ""
+        return self.print_client_combo.currentText()
+
+    def _selected_print_client_id(self) -> int | None:
+        if self.print_client_combo is None:
+            return None
         value = self.print_client_combo.currentData()
-        return str(value or "")
+        return int(value) if value is not None else None
 
     def _safe_print_filename_component(self, value: str) -> str:
         normalized = value.strip().lower().replace(" ", "-")
@@ -5603,6 +5817,23 @@ class MainWindow(QMainWindow):
             self.page_subtitle_label.setText(subtitle)
         if self.search_input is not None:
             self.search_input.setVisible(active_label == "Historial viajes")
+        if self.search_column_combo is not None:
+            self.search_column_combo.setVisible(active_label == "Historial viajes")
+        _active_search_col = (
+            self.search_column_combo.currentData() or ""
+            if self.search_column_combo is not None
+            else ""
+        )
+        if self.search_date_widget is not None:
+            self.search_date_widget.setVisible(
+                active_label == "Historial viajes"
+                and _active_search_col in VIAJE_DATE_SEARCH_COLUMNS
+            )
+        if self.search_value_combo is not None:
+            self.search_value_combo.setVisible(
+                active_label == "Historial viajes"
+                and _active_search_col in VIAJE_COMBO_SEARCH_COLUMNS
+            )
         if self.new_button is not None:
             self.new_button.setVisible(active_label == "Cargar viaje")
         if self.save_button is not None:
